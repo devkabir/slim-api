@@ -6,6 +6,7 @@ namespace App\Config;
 
 use PDO;
 use PDOException;
+use RuntimeException;
 
 class Database
 {
@@ -30,10 +31,24 @@ class Database
             try {
                 self::$instance = new PDO($dsn, $user, $pass, $options);
             } catch (PDOException $e) {
-                throw new \RuntimeException('Database connection failed: ' . $e->getMessage(), (int)$e->getCode());
+                AppLogger::getLogger()->error('Database connection failed', [
+                    'message' => $e->getMessage(),
+                    'code' => $e->getCode(),
+                ]);
+                throw new RuntimeException('Database connection failed.', (int)$e->getCode(), $e);
             }
         }
 
         return self::$instance;
+    }
+
+    public static function setConnection(?PDO $pdo): void
+    {
+        self::$instance = $pdo;
+    }
+
+    public static function reset(): void
+    {
+        self::$instance = null;
     }
 }
