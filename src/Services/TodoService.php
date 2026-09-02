@@ -13,8 +13,9 @@ use App\Repositories\TodoRepository;
 
 class TodoService
 {
-    private const CACHE_PREFIX_ITEM = 'todo_item_';
-    private const CACHE_PREFIX_LIST = 'todo_list_';
+    private const CACHE_PREFIX_ITEM    = 'todo_item_';
+    private const CACHE_PREFIX_LIST    = 'todo_list_';
+    private const CACHE_NAMESPACE_LIST = 'todo_list_ns';
 
     public function __construct(
         private TodoRepository $repository,
@@ -27,7 +28,9 @@ class TodoService
      */
     public function getAllTodos(?bool $completed = null): array
     {
-        $cacheKey = self::CACHE_PREFIX_LIST . ($completed === null ? 'all' : ($completed ? 'completed' : 'pending'));
+        $nsVersion = Cache::getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+        $filterKey = $completed === null ? 'all' : ($completed ? 'completed' : 'pending');
+        $cacheKey  = self::CACHE_PREFIX_LIST . "v{$nsVersion}_{$filterKey}";
 
         $cached = Cache::get($cacheKey);
         if ($cached !== false && is_array($cached)) {
@@ -64,7 +67,7 @@ class TodoService
     {
         $todo = $this->repository->create($dto->title, $dto->description, $dto->completed);
 
-        // Invalidate list caches
+        // Invalidate list caches using O(1) version bumping and targeted direct key deletion
         $this->invalidateListCaches();
 
         // Warm up single item cache
@@ -77,12 +80,21 @@ class TodoService
         return $todo;
     }
 
+    /**
+     * Invalidate list caches by bumping namespace version and deleting known list keys directly.
+     * Avoids getAllKeys() to eliminate full cache scans and performance bottlenecks.
+     */
     private function invalidateListCaches(): void
     {
-        Cache::delete(self::CACHE_PREFIX_LIST . 'all');
-        Cache::delete(self::CACHE_PREFIX_LIST . 'completed');
-        Cache::delete(self::CACHE_PREFIX_LIST . 'pending');
-        Cache::deleteByPrefix(self::CACHE_PREFIX_LIST);
+        // 1. O(1) versioned cache invalidation
+        Cache::incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+
+        // 2. Direct deletion of known static list keys
+        Cache::deleteMulti([
+            self::CACHE_PREFIX_LIST . 'all',
+            self::CACHE_PREFIX_LIST . 'completed',
+            self::CACHE_PREFIX_LIST . 'pending',
+        ]);
     }
 
     public function updateTodo(int $id, UpdateTodoDTO $dto): ?Todo
