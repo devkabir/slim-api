@@ -20,50 +20,69 @@ readonly class UpdateTodoDTO
 
     /**
      * @param array<string, mixed> $data
+     * @throws ValidationException
      */
     public static function fromArray(array $data): self
     {
-        $errors         = [];
+        $errors = [];
+
+        // 1. Reject unexpected properties
+        $allowedFields = ['title', 'description', 'completed'];
+        $unexpected    = array_diff(array_keys($data), $allowedFields);
+        if ( ! empty($unexpected)) {
+            $errors['unexpected_properties'] = sprintf(
+                'Unrecognized properties: %s. Only %s are allowed.',
+                implode(', ', $unexpected),
+                implode(', ', $allowedFields)
+            );
+        }
+
         $hasTitle       = array_key_exists('title', $data);
         $hasDescription = array_key_exists('description', $data);
         $hasCompleted   = array_key_exists('completed', $data);
 
-        if ( ! $hasTitle && ! $hasDescription && ! $hasCompleted) {
-            throw new ValidationException(['body' => 'No updatable fields were provided.']);
+        // 2. Ensure at least one updatable property is provided
+        if ( ! $hasTitle && ! $hasDescription && ! $hasCompleted && empty($errors)) {
+            $errors['body'] = 'At least one updatable field (title, description, or completed) must be provided.';
         }
 
+        // 3. Validate 'title'
         $title = null;
         if ($hasTitle) {
             if ( ! is_string($data['title'])) {
                 $errors['title'] = 'The title must be a string.';
             } else {
-                $title = trim($data['title']);
-                if ($title === '') {
+                $trimmed = trim($data['title']);
+                if ($trimmed === '') {
                     $errors['title'] = 'The title cannot be blank.';
-                } elseif (mb_strlen($title) > 255) {
+                } elseif (mb_strlen($trimmed) > 255) {
                     $errors['title'] = 'The title cannot exceed 255 characters.';
+                } else {
+                    $title = $trimmed;
                 }
             }
         }
 
+        // 4. Validate 'description'
         $description = null;
         if ($hasDescription) {
             if ($data['description'] !== null && ! is_string($data['description'])) {
                 $errors['description'] = 'The description must be a string or null.';
             } elseif (is_string($data['description'])) {
-                $desc = trim($data['description']);
-                if (mb_strlen($desc) > 65535) {
-                    $errors['description'] = 'The description exceeds maximum allowed length.';
+                $trimmedDesc = trim($data['description']);
+                if (mb_strlen($trimmedDesc) > 65535) {
+                    $errors['description'] = 'The description exceeds maximum allowed length of 65,535 characters.';
                 } else {
-                    $description = $desc === '' ? null : $desc;
+                    $description = $trimmedDesc === '' ? null : $trimmedDesc;
                 }
             }
         }
 
+        // 5. Validate 'completed'
         $completed = null;
         if ($hasCompleted) {
             if ( ! is_bool($data['completed'])) {
-                $errors['completed'] = 'The completed field must be a boolean.';
+                $errors['completed'] = 'The completed field must be an actual boolean (true or false).';
             } else {
                 $completed = $data['completed'];
             }

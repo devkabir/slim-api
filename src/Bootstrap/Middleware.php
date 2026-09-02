@@ -19,18 +19,16 @@ class Middleware
     public static function register(App $app, ContainerInterface $container): void
     {
         $app->addRoutingMiddleware();
-        $app->add(new JsonBodyParserMiddleware());
-        $app->add(new CorsMiddleware());
-
-        $displayErrorDetails = AppConfig::isDebug();
-
         $logger           = $container->get(LoggerInterface::class);
         $callableResolver = $app->getCallableResolver();
         $responseFactory  = $app->getResponseFactory();
 
-        $errorHandler = new HttpErrorHandler($callableResolver, $responseFactory, $logger);
+        $app->add(new JsonBodyParserMiddleware($responseFactory));
+        $app->add(new CorsMiddleware());
 
-        $errorMiddleware = $app->addErrorMiddleware($displayErrorDetails, true, true, $logger);
+        $displayErrorDetails = AppConfig::isDebug();
+        $errorHandler        = new HttpErrorHandler($callableResolver, $responseFactory, $logger);
+        $errorMiddleware     = $app->addErrorMiddleware($displayErrorDetails, true, true, $logger);
         $errorMiddleware->setDefaultErrorHandler($errorHandler);
 
         // Security headers and HTTPS enforcement

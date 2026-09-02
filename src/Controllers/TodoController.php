@@ -39,7 +39,15 @@ class TodoController
      */
     public function show(Request $request, Response $response, array $args): Response
     {
-        $id   = (int)$args['id'];
+        $id = $this->validateId($args['id'] ?? null);
+        if ($id === null) {
+            return $this->response->error(
+                message: 'The todo ID must be a positive integer.',
+                type: 'VALIDATION_ERROR',
+                statusCode: 422
+            );
+        }
+
         $todo = $this->todoService->getTodoById($id);
 
         if ( ! $todo) {
@@ -74,7 +82,15 @@ class TodoController
      */
     public function update(Request $request, Response $response, array $args): Response
     {
-        $id   = (int)$args['id'];
+        $id = $this->validateId($args['id'] ?? null);
+        if ($id === null) {
+            return $this->response->error(
+                message: 'The todo ID must be a positive integer.',
+                type: 'VALIDATION_ERROR',
+                statusCode: 422
+            );
+        }
+
         $body = (array)($request->getParsedBody() ?? []);
         $dto  = UpdateTodoDTO::fromArray($body);
 
@@ -99,7 +115,15 @@ class TodoController
      */
     public function delete(Request $request, Response $response, array $args): Response
     {
-        $id      = (int)$args['id'];
+        $id = $this->validateId($args['id'] ?? null);
+        if ($id === null) {
+            return $this->response->error(
+                message: 'The todo ID must be a positive integer.',
+                type: 'VALIDATION_ERROR',
+                statusCode: 422
+            );
+        }
+
         $deleted = $this->todoService->deleteTodo($id);
 
         if ( ! $deleted) {
@@ -113,5 +137,17 @@ class TodoController
         return $this->response->success(
             message: "Todo with ID {$id} deleted successfully."
         );
+    }
+
+    /**
+     * Validate and return a positive integer ID, or null if invalid.
+     */
+    private function validateId(mixed $id): ?int
+    {
+        $validated = filter_var($id, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1]
+        ]);
+
+        return ($validated === false || $validated === null) ? null : (int)$validated;
     }
 }

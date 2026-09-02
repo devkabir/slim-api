@@ -17,13 +17,15 @@ use Slim\Handlers\ErrorHandler as SlimErrorHandler;
 
 class HttpErrorHandler extends SlimErrorHandler
 {
-    public const TYPE_SERVER_ERROR     = 'SERVER_ERROR';
-    public const TYPE_NOT_FOUND        = 'NOT_FOUND';
-    public const TYPE_NOT_ALLOWED      = 'NOT_ALLOWED';
-    public const TYPE_UNAUTHORIZED     = 'UNAUTHORIZED';
-    public const TYPE_FORBIDDEN        = 'FORBIDDEN';
-    public const TYPE_BAD_REQUEST      = 'BAD_REQUEST';
-    public const TYPE_VALIDATION_ERROR = 'VALIDATION_ERROR';
+    public const TYPE_SERVER_ERROR            = 'SERVER_ERROR';
+    public const TYPE_NOT_FOUND               = 'NOT_FOUND';
+    public const TYPE_NOT_ALLOWED             = 'NOT_ALLOWED';
+    public const TYPE_UNAUTHORIZED            = 'UNAUTHORIZED';
+    public const TYPE_FORBIDDEN               = 'FORBIDDEN';
+    public const TYPE_BAD_REQUEST             = 'BAD_REQUEST';
+    public const TYPE_VALIDATION_ERROR        = 'VALIDATION_ERROR';
+    public const TYPE_CONTENT_TOO_LARGE       = 'CONTENT_TOO_LARGE';
+    public const TYPE_UNSUPPORTED_MEDIA_TYPE  = 'UNSUPPORTED_MEDIA_TYPE';
 
     protected function respond(): Response
     {
@@ -52,6 +54,10 @@ class HttpErrorHandler extends SlimErrorHandler
                 $type = self::TYPE_FORBIDDEN;
             } elseif ($exception instanceof HttpBadRequestException) {
                 $type = self::TYPE_BAD_REQUEST;
+            } elseif ($statusCode === 413) {
+                $type = self::TYPE_CONTENT_TOO_LARGE;
+            } elseif ($statusCode === 415) {
+                $type = self::TYPE_UNSUPPORTED_MEDIA_TYPE;
             }
         }
 
