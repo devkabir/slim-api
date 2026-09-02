@@ -80,7 +80,7 @@ class HealthController
         } catch (Throwable $e) {
             $this->logger?->error('Database health check failed', [
                 'type'    => get_class($e),
-                'message' => $e->getMessage(),
+                'message' => (string)preg_replace('/(password|pass|secret|key|token|auth|pwd)=([^&\s;]+)/i', '$1=***REDACTED***', $e->getMessage()),
                 'code'    => $e->getCode(),
             ]);
             $dbStatus = 'unavailable';

@@ -55,19 +55,25 @@ A RESTful Todo List CRUD API built using **Slim 4**, **MySQL** (via PDO), and **
 ## 🛠️ Setup & Installation
 
 ### 1. Database Setup
+
 Create database and table:
+
 ```bash
 mysql -u root < schema.sql
 ```
 
 ### 2. Dependencies
+
 Install composer packages:
+
 ```bash
 composer install
 ```
 
 ### 3. Environment Configuration
+
 Copy `.env.example` to `.env` and configure credentials:
+
 ```env
 APP_ENV=development
 APP_DEBUG=true
@@ -98,6 +104,7 @@ MEMCACHED_PASSWORD=
 ```
 
 ### 4. Run Development Server
+
 ```bash
 php -S 127.0.0.1:8000 -t public
 ```
@@ -107,6 +114,7 @@ php -S 127.0.0.1:8000 -t public
 ## 🔒 Security Hardening
 
 ### 1. Web Server & HTTPS Deployment
+
 - **Expose ONLY `public/`**: Set your web server document root strictly to the `public/` directory (see [`nginx.conf.example`](file:///Users/devkabir/Sites/slim/nginx.conf.example)). Never expose the repository root directory.
 - **HTTP -> HTTPS Redirection**: Handled at the reverse proxy / web server layer (301) and backed up by [`HttpsEnforcementMiddleware`](file:///Users/devkabir/Sites/slim/src/Middleware/HttpsEnforcementMiddleware.php) (301 for safe methods, 308 for mutations to preserve request payload).
 - **HSTS**: Enabled via `Strict-Transport-Security: max-age=31536000; includeSubDomains` at the HTTPS termination layer and in [`SecurityHeadersMiddleware`](file:///Users/devkabir/Sites/slim/src/Middleware/SecurityHeadersMiddleware.php).
@@ -117,6 +125,7 @@ php -S 127.0.0.1:8000 -t public
   - `X-Frame-Options: DENY`
 
 ### 2. Memcached Hardening
+
 - **Private Binding & Firewall**: Memcached is configured to bind strictly to `127.0.0.1` or a private VPC interface (never `0.0.0.0`). In production, restrict port 11211 with firewall rules and disable UDP (`-U 0`).
 - **SASL Authentication**: Supported via `MEMCACHED_USERNAME` and `MEMCACHED_PASSWORD` in binary protocol mode.
 - **No `getAllKeys()` Scans**: Cache invalidation uses O(1) versioned cache namespaces (`Cache::incrementNamespaceVersion('todo_list_ns')`) and targeted direct multi-key deletions (`todo_list_all`, `todo_list_completed`, `todo_list_pending`).
@@ -127,7 +136,7 @@ php -S 127.0.0.1:8000 -t public
 ## 📡 API Endpoints
 
 | Method   | Endpoint          | Description                                              | Cache Behavior                                         |
-|:---------|:------------------|:---------------------------------------------------------|:-------------------------------------------------------|
+| :------- | :---------------- | :------------------------------------------------------- | :----------------------------------------------------- |
 | `GET`    | `/`               | Health check & API status                                | Public info                                            |
 | `GET`    | `/health/live`    | Public liveness probe                                    | Process check                                          |
 | `GET`    | `/health/ready`   | Protected readiness probe                                | Checks MySQL & Memcached                               |

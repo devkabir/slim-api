@@ -18,7 +18,7 @@ Options -Indexes
 
     # Block direct access to sensitive root files and source directories
     RewriteRule ^(\.env|composer\.(json|lock)|schema\.sql|SECURITY_IMPROVEMENT_PLAN\.md|README\.md|phpunit\.xml) - [F,L,NC]
-    RewriteRule ^(src|vendor|logs|tests|\.git|\.codegraph|\.idea)/ - [F,L,NC]
+    RewriteRule ^(src|bootstrap|vendor|logs|tests|\.git|\.codegraph|\.idea)/ - [F,L,NC]
 
     # Redirect root requests to public/ if DocumentRoot was incorrectly set to project root
     RewriteCond %{REQUEST_URI} !^/public/

@@ -2,16 +2,29 @@
 
 declare(strict_types=1);
 
-use App\App;
-use Dotenv\Dotenv;
+define('APP_START', microtime(true));
+
+/*
+|--------------------------------------------------------------------------
+| Register The Auto Loader
+|--------------------------------------------------------------------------
+|
+| Composer provides a convenient, automatically generated class loader for
+| this application. We just need to utilize it! We'll simply require it
+| into the script here so that we don't have to worry about loading classes.
+|
+*/
 
 require __DIR__ . '/../vendor/autoload.php';
 
-// Load environment variables
-if (file_exists(__DIR__ . '/../.env')) {
-    $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
-    $dotenv->safeLoad();
-}
+/*
+|--------------------------------------------------------------------------
+| Run The Application
+|--------------------------------------------------------------------------
+|
+| Once we have the application, we can handle the incoming request using
+| the application's HTTP kernel / Slim engine and send the response back.
+|
+*/
 
-$app = App::create();
-$app->run();
+(require_once __DIR__ . '/../bootstrap/app.php')->run();

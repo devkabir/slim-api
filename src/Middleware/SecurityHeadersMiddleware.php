@@ -52,6 +52,12 @@ class SecurityHeadersMiddleware implements MiddlewareInterface
             $response = $response->withHeader('Strict-Transport-Security', $hsts);
         }
 
+        // Server-Timing benchmark header if APP_START is defined
+        if (defined('APP_START')) {
+            $durationMs = round((microtime(true) - APP_START) * 1000, 2);
+            $response   = $response->withHeader('Server-Timing', "app;dur={$durationMs}");
+        }
+
         return $response;
     }
 

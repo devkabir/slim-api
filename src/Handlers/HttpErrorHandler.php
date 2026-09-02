@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Handlers;
 
+use App\Config\AppConfig;
 use Slim\Exception\HttpException;
 use App\Exceptions\ValidationException;
 use Slim\Exception\HttpNotFoundException;
@@ -16,12 +17,12 @@ use Slim\Handlers\ErrorHandler as SlimErrorHandler;
 
 class HttpErrorHandler extends SlimErrorHandler
 {
-    public const TYPE_SERVER_ERROR = 'SERVER_ERROR';
-    public const TYPE_NOT_FOUND = 'NOT_FOUND';
-    public const TYPE_NOT_ALLOWED = 'NOT_ALLOWED';
-    public const TYPE_UNAUTHORIZED = 'UNAUTHORIZED';
-    public const TYPE_FORBIDDEN = 'FORBIDDEN';
-    public const TYPE_BAD_REQUEST = 'BAD_REQUEST';
+    public const TYPE_SERVER_ERROR     = 'SERVER_ERROR';
+    public const TYPE_NOT_FOUND        = 'NOT_FOUND';
+    public const TYPE_NOT_ALLOWED      = 'NOT_ALLOWED';
+    public const TYPE_UNAUTHORIZED     = 'UNAUTHORIZED';
+    public const TYPE_FORBIDDEN        = 'FORBIDDEN';
+    public const TYPE_BAD_REQUEST      = 'BAD_REQUEST';
     public const TYPE_VALIDATION_ERROR = 'VALIDATION_ERROR';
 
     protected function respond(): Response
@@ -66,8 +67,8 @@ class HttpErrorHandler extends SlimErrorHandler
             $payload['error']['details'] = $details;
         }
 
-        // Detailed error information only when displayErrorDetails is explicitly enabled
-        if ($this->displayErrorDetails) {
+        // Detailed error information only when debug is active AND strictly NOT in production
+        if ($this->displayErrorDetails && ! AppConfig::isProduction()) {
             $payload['debug'] = [
                 'type'    => get_class($exception),
                 'message' => $exception->getMessage(),
@@ -112,8 +113,9 @@ class HttpErrorHandler extends SlimErrorHandler
     private function sanitizeMessage(string $message): string
     {
         // Redact potential passwords, db credentials, or secrets in logged strings
-        $pattern = '/(password|pass|secret|key|token|auth|pwd)=([^&\s;]+)/i';
+        $message = (string)preg_replace('/(password|pass|secret|key|token|auth|pwd)=([^&\s;]+)/i', '$1=***REDACTED***', $message);
+        $message = (string)preg_replace('/(using password:\s*)(YES|NO)/i', '$1***', $message);
 
-        return (string)preg_replace($pattern, '$1=***REDACTED***', $message);
+        return $message;
     }
 }

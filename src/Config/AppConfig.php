@@ -28,7 +28,7 @@ class AppConfig
 
     public static function isProduction(): bool
     {
-        return self::getEnv() === 'production';
+        return in_array(self::getEnv(), ['production', 'prod'], true);
     }
 
     public static function getEnv(): string
