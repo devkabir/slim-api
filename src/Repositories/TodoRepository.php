@@ -21,7 +21,7 @@ class TodoRepository
     /**
      * @return Todo[]
      */
-    public function findAll(?bool $completed = null): array
+    public function findAll(?bool $completed = null, int $limit = 20, int $offset = 0): array
     {
         $sql    = "SELECT * FROM `todos`";
         $params = [];
@@ -31,16 +31,45 @@ class TodoRepository
             $params[':completed'] = $completed ? 1 : 0;
         }
 
-        $sql .= " ORDER BY `created_at` DESC";
+        $sql .= " ORDER BY `created_at` DESC LIMIT :limit OFFSET :offset";
 
         try {
             $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
+            foreach ($params as $key => $val) {
+                $stmt->bindValue($key, $val, PDO::PARAM_INT);
+            }
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+            $stmt->execute();
             $rows = $stmt->fetchAll();
 
             return array_map(fn($row) => Todo::fromArray($row), $rows);
         } catch (Throwable $e) {
             $this->logger?->error('Database query failed in findAll', [
+                'error' => $e->getMessage(),
+                'code'  => $e->getCode(),
+            ]);
+            throw $e;
+        }
+    }
+
+    public function countAll(?bool $completed = null): int
+    {
+        $sql    = "SELECT COUNT(*) FROM `todos`";
+        $params = [];
+
+        if ($completed !== null) {
+            $sql                  .= " WHERE `completed` = :completed";
+            $params[':completed'] = $completed ? 1 : 0;
+        }
+
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return (int)$stmt->fetchColumn();
+        } catch (Throwable $e) {
+            $this->logger?->error('Database query failed in countAll', [
                 'error' => $e->getMessage(),
                 'code'  => $e->getCode(),
             ]);

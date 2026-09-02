@@ -25,12 +25,12 @@ class TodoController
      */
     public function index(Request $request, Response $response): Response
     {
-        $query = TodoListQueryDTO::fromQueryParams($request->getQueryParams());
-        $todos = $this->todoService->getAllTodos($query->completed);
+        $query  = TodoListQueryDTO::fromQueryParams($request->getQueryParams());
+        $result = $this->todoService->getPaginatedTodos($query->completed, $query->page, $query->limit);
 
         return $this->response->success(
-            data: $todos,
-            meta: ['count' => count($todos)]
+            data: $result['todos'],
+            meta: ['pagination' => $result['pagination']]
         );
     }
 

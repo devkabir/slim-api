@@ -24,26 +24,49 @@ class TodoService
     }
 
     /**
-     * @return Todo[]
+     * @return array{todos: Todo[], pagination: array{total: int, page: int, per_page: int, total_pages: int, has_next_page: bool, has_prev_page: bool}}
      */
-    public function getAllTodos(?bool $completed = null): array
+    public function getPaginatedTodos(?bool $completed = null, int $page = 1, int $limit = 20): array
     {
         $nsVersion = Cache::getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
         $filterKey = $completed === null ? 'all' : ($completed ? 'completed' : 'pending');
-        $cacheKey  = self::CACHE_PREFIX_LIST . "v{$nsVersion}_{$filterKey}";
+        $cacheKey  = self::CACHE_PREFIX_LIST . "v{$nsVersion}_{$filterKey}_p{$page}_l{$limit}";
 
         $cached = Cache::get($cacheKey);
-        if ($cached !== false && is_array($cached)) {
-            return array_map(fn($item) => $item instanceof Todo ? $item : Todo::fromArray($item), $cached);
+        if ($cached !== false && is_array($cached) && isset($cached['items'], $cached['pagination'])) {
+            $todos = array_map(fn($item) => $item instanceof Todo ? $item : Todo::fromArray($item), $cached['items']);
+
+            return [
+                'todos'      => $todos,
+                'pagination' => $cached['pagination'],
+            ];
         }
 
-        $todos = $this->repository->findAll($completed);
+        $total      = $this->repository->countAll($completed);
+        $offset     = ($page - 1) * $limit;
+        $todos      = $this->repository->findAll($completed, $limit, $offset);
+        $totalPages = $total > 0 ? (int)ceil($total / $limit) : 1;
 
-        // Store in cache as raw arrays for reliable serialization
-        $serialized = array_map(fn(Todo $t) => $t->jsonSerialize(), $todos);
-        Cache::set($cacheKey, $serialized);
+        $pagination = [
+            'total'         => $total,
+            'page'          => $page,
+            'per_page'      => $limit,
+            'total_pages'   => $totalPages,
+            'has_next_page' => $page < $totalPages,
+            'has_prev_page' => $page > 1,
+        ];
 
-        return $todos;
+        // Store serialized items and pagination metadata in cache
+        $serializedItems = array_map(fn(Todo $t) => $t->jsonSerialize(), $todos);
+        Cache::set($cacheKey, [
+            'items'      => $serializedItems,
+            'pagination' => $pagination,
+        ]);
+
+        return [
+            'todos'      => $todos,
+            'pagination' => $pagination,
+        ];
     }
 
     public function getTodoById(int $id): ?Todo
@@ -82,7 +105,6 @@ class TodoService
 
     /**
      * Invalidate list caches by bumping namespace version and deleting known list keys directly.
-     * Avoids getAllKeys() to eliminate full cache scans and performance bottlenecks.
      */
     private function invalidateListCaches(): void
     {

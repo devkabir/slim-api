@@ -26,6 +26,8 @@ A RESTful Todo List CRUD API built using **Slim 4**, **MySQL** (via PDO), and **
 ├── schema.sql                  # MySQL database and table schema
 ├── nginx.conf.example          # Production Nginx SSL/TLS, HSTS, and redirect configuration
 ├── Caddyfile.example           # Production Caddy HTTPS configuration
+├── scripts/
+│   └── update-valet-config.sh  # Laravel Valet Nginx automated configuration script
 ├── public/
 │   ├── index.php               # Application entry point and route definitions
 │   └── .htaccess               # Apache URL rewrite rules & Security headers
@@ -104,6 +106,28 @@ MEMCACHED_PASSWORD=
 ```
 
 ### 4. Run Development Server
+
+#### Option A: Laravel Valet (Recommended)
+
+To configure and serve this project with **Laravel Valet** at `https://slim.test` using all production security headers and Nginx settings:
+
+```bash
+# Make the helper script executable (if not already)
+chmod +x scripts/update-valet-config.sh
+
+# Run the Valet configuration script
+./scripts/update-valet-config.sh
+```
+
+This script automatically:
+
+1. Links and secures `slim.test` with local TLS certificates.
+2. Configures Nginx with the exact directives from `nginx.conf.example` (HSTS, CSP, Permissions-Policy, strict `public/` DocumentRoot, timeouts, hidden file protection).
+3. Restarts Valet Nginx.
+
+Access your API at: `https://slim.test`
+
+#### Option B: Built-in PHP Server
 
 ```bash
 php -S 127.0.0.1:8000 -t public

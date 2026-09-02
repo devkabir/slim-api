@@ -10,6 +10,8 @@ use Psr\Log\LoggerInterface;
 use App\Handlers\HttpErrorHandler;
 use App\Middleware\CorsMiddleware;
 use Psr\Container\ContainerInterface;
+use App\Middleware\RequestIdMiddleware;
+use App\Middleware\RateLimitMiddleware;
 use App\Middleware\JsonBodyParserMiddleware;
 use App\Middleware\SecurityHeadersMiddleware;
 use App\Middleware\HttpsEnforcementMiddleware;
@@ -31,8 +33,10 @@ class Middleware
         $errorMiddleware     = $app->addErrorMiddleware($displayErrorDetails, true, true, $logger);
         $errorMiddleware->setDefaultErrorHandler($errorHandler);
 
-        // Security headers and HTTPS enforcement
+        // Security headers, rate limiting, request ID, and HTTPS enforcement
+        $app->add(new RateLimitMiddleware($responseFactory));
         $app->add(new SecurityHeadersMiddleware());
+        $app->add(new RequestIdMiddleware());
         $app->add(new HttpsEnforcementMiddleware($responseFactory));
     }
 }

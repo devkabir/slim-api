@@ -18,6 +18,11 @@ class Bootstrap
         ini_set('log_errors', '1');
         error_reporting(E_ALL);
 
+        // Configure strict execution and network timeouts
+        ini_set('max_execution_time', '30');
+        ini_set('max_input_time', '30');
+        ini_set('default_socket_timeout', '5');
+
         // Load environment variables
         $rootPath = dirname(__DIR__, 2);
         if (file_exists($rootPath . '/.env')) {
