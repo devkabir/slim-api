@@ -1,0 +1,17 @@
+{
+    "name": "app/slim-todo-api",
+    "description": "Simple Todo List CRUD API with Slim 4, Memcached, and MySQL",
+    "type": "project",
+    "require": {
+        "php": "^8.0 || ^8.1 || ^8.2 || ^8.3 || ^8.4",
+        "slim/slim": "^4.14",
+        "slim/psr7": "^1.7",
+        "php-di/php-di": "^7.0",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    }
+}
