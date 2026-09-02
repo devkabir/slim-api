@@ -4,17 +4,18 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
-use App\Config\Database;
-use App\Models\Todo;
 use PDO;
+use Throwable;
+use App\Models\Todo;
+use RuntimeException;
+use Psr\Log\LoggerInterface;
 
 class TodoRepository
 {
-    private PDO $db;
-
-    public function __construct()
-    {
-        $this->db = Database::getConnection();
+    public function __construct(
+        private PDO $db,
+        private ?LoggerInterface $logger = null
+    ) {
     }
 
     /**
@@ -22,50 +23,80 @@ class TodoRepository
      */
     public function findAll(?bool $completed = null): array
     {
-        $sql = "SELECT * FROM `todos`";
+        $sql    = "SELECT * FROM `todos`";
         $params = [];
 
         if ($completed !== null) {
-            $sql .= " WHERE `completed` = :completed";
+            $sql                  .= " WHERE `completed` = :completed";
             $params[':completed'] = $completed ? 1 : 0;
         }
 
         $sql .= " ORDER BY `created_at` DESC";
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        $rows = $stmt->fetchAll();
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll();
 
-        return array_map(fn($row) => Todo::fromArray($row), $rows);
-    }
-
-    public function findById(int $id): ?Todo
-    {
-        $stmt = $this->db->prepare("SELECT * FROM `todos` WHERE `id` = :id LIMIT 1");
-        $stmt->execute([':id' => $id]);
-        $row = $stmt->fetch();
-
-        if (!$row) {
-            return null;
+            return array_map(fn($row) => Todo::fromArray($row), $rows);
+        } catch (Throwable $e) {
+            $this->logger?->error('Database query failed in findAll', [
+                'error' => $e->getMessage(),
+                'code'  => $e->getCode(),
+            ]);
+            throw $e;
         }
-
-        return Todo::fromArray($row);
     }
 
     public function create(string $title, ?string $description = null, bool $completed = false): Todo
     {
-        $stmt = $this->db->prepare(
-            "INSERT INTO `todos` (`title`, `description`, `completed`) VALUES (:title, :description, :completed)"
-        );
+        try {
+            $stmt = $this->db->prepare(
+                "INSERT INTO `todos` (`title`, `description`, `completed`) VALUES (:title, :description, :completed)"
+            );
 
-        $stmt->execute([
-            ':title' => $title,
-            ':description' => $description,
-            ':completed' => $completed ? 1 : 0,
-        ]);
+            $stmt->execute([
+                ':title'       => $title,
+                ':description' => $description,
+                ':completed'   => $completed ? 1 : 0,
+            ]);
 
-        $id = (int)$this->db->lastInsertId();
-        return $this->findById($id);
+            $id   = (int)$this->db->lastInsertId();
+            $todo = $this->findById($id);
+
+            if ($todo === null) {
+                throw new RuntimeException('Created todo could not be loaded from database.');
+            }
+
+            return $todo;
+        } catch (Throwable $e) {
+            $this->logger?->error('Database query failed in create', [
+                'title' => $title,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    public function findById(int $id): ?Todo
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT * FROM `todos` WHERE `id` = :id LIMIT 1");
+            $stmt->execute([':id' => $id]);
+            $row = $stmt->fetch();
+
+            if ( ! $row) {
+                return null;
+            }
+
+            return Todo::fromArray($row);
+        } catch (Throwable $e) {
+            $this->logger?->error('Database query failed in findById', [
+                'id'    => $id,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 
     public function update(int $id, array $data): ?Todo
@@ -74,17 +105,17 @@ class TodoRepository
         $params = [':id' => $id];
 
         if (array_key_exists('title', $data)) {
-            $fields[] = "`title` = :title";
+            $fields[]         = "`title` = :title";
             $params[':title'] = $data['title'];
         }
 
         if (array_key_exists('description', $data)) {
-            $fields[] = "`description` = :description";
+            $fields[]               = "`description` = :description";
             $params[':description'] = $data['description'];
         }
 
         if (array_key_exists('completed', $data)) {
-            $fields[] = "`completed` = :completed";
+            $fields[]             = "`completed` = :completed";
             $params[':completed'] = $data['completed'] ? 1 : 0;
         }
 
@@ -92,18 +123,34 @@ class TodoRepository
             return $this->findById($id);
         }
 
-        $sql = "UPDATE `todos` SET " . implode(', ', $fields) . " WHERE `id` = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        try {
+            $sql  = "UPDATE `todos` SET " . implode(', ', $fields) . " WHERE `id` = :id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
 
-        return $this->findById($id);
+            return $this->findById($id);
+        } catch (Throwable $e) {
+            $this->logger?->error('Database query failed in update', [
+                'id'    => $id,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 
     public function delete(int $id): bool
     {
-        $stmt = $this->db->prepare("DELETE FROM `todos` WHERE `id` = :id");
-        $stmt->execute([':id' => $id]);
+        try {
+            $stmt = $this->db->prepare("DELETE FROM `todos` WHERE `id` = :id");
+            $stmt->execute([':id' => $id]);
 
-        return $stmt->rowCount() > 0;
+            return $stmt->rowCount() > 0;
+        } catch (Throwable $e) {
+            $this->logger?->error('Database query failed in delete', [
+                'id'    => $id,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 }

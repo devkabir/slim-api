@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace App\Handlers;
 
-use Psr\Http\Message\ResponseInterface as Response;
-use Slim\Exception\HttpBadRequestException;
 use Slim\Exception\HttpException;
-use Slim\Exception\HttpForbiddenException;
-use Slim\Exception\HttpMethodNotAllowedException;
+use App\Exceptions\ValidationException;
 use Slim\Exception\HttpNotFoundException;
+use Slim\Exception\HttpForbiddenException;
+use Slim\Exception\HttpBadRequestException;
 use Slim\Exception\HttpUnauthorizedException;
+use Slim\Exception\HttpMethodNotAllowedException;
+use Psr\Http\Message\ResponseInterface as Response;
 use Slim\Handlers\ErrorHandler as SlimErrorHandler;
-use Throwable;
 
 class HttpErrorHandler extends SlimErrorHandler
 {
@@ -22,17 +22,24 @@ class HttpErrorHandler extends SlimErrorHandler
     public const TYPE_UNAUTHORIZED = 'UNAUTHORIZED';
     public const TYPE_FORBIDDEN = 'FORBIDDEN';
     public const TYPE_BAD_REQUEST = 'BAD_REQUEST';
+    public const TYPE_VALIDATION_ERROR = 'VALIDATION_ERROR';
 
     protected function respond(): Response
     {
-        $exception = $this->exception;
+        $exception  = $this->exception;
         $statusCode = 500;
-        $type = self::TYPE_SERVER_ERROR;
-        $message = 'An internal server error occurred.';
+        $type       = self::TYPE_SERVER_ERROR;
+        $message    = 'An internal server error occurred.';
+        $details    = null;
 
-        if ($exception instanceof HttpException) {
+        if ($exception instanceof ValidationException) {
+            $statusCode = 422;
+            $type       = self::TYPE_VALIDATION_ERROR;
+            $message    = $exception->getMessage();
+            $details    = $exception->getErrors();
+        } elseif ($exception instanceof HttpException) {
             $statusCode = (int)$exception->getCode();
-            $message = $exception->getMessage();
+            $message    = $exception->getMessage();
 
             if ($exception instanceof HttpNotFoundException) {
                 $type = self::TYPE_NOT_FOUND;
@@ -49,20 +56,24 @@ class HttpErrorHandler extends SlimErrorHandler
 
         $payload = [
             'success' => false,
-            'error' => [
-                'type' => $type,
+            'error'   => [
+                'type'    => $type,
                 'message' => $message,
             ],
         ];
 
+        if ($details !== null) {
+            $payload['error']['details'] = $details;
+        }
+
         // Detailed error information only when displayErrorDetails is explicitly enabled
         if ($this->displayErrorDetails) {
             $payload['debug'] = [
-                'type' => get_class($exception),
+                'type'    => get_class($exception),
                 'message' => $exception->getMessage(),
-                'file' => $exception->getFile(),
-                'line' => $exception->getLine(),
-                'trace' => explode("\n", $exception->getTraceAsString()),
+                'file'    => $exception->getFile(),
+                'line'    => $exception->getLine(),
+                'trace'   => explode("\n", $exception->getTraceAsString()),
             ];
         }
 
@@ -76,30 +87,33 @@ class HttpErrorHandler extends SlimErrorHandler
 
     protected function writeToErrorLog(): void
     {
+        if ($this->logger === null) {
+            return;
+        }
+
         $exception = $this->exception;
-        $context = [
-            'type' => get_class($exception),
+        $context   = [
+            'type'    => get_class($exception),
             'message' => $this->sanitizeMessage($exception->getMessage()),
-            'code' => $exception->getCode(),
-            'file' => $exception->getFile(),
-            'line' => $exception->getLine(),
-            'uri' => (string)$this->request->getUri(),
-            'method' => $this->request->getMethod(),
+            'code'    => $exception->getCode(),
+            'file'    => $exception->getFile(),
+            'line'    => $exception->getLine(),
+            'uri'     => (string)$this->request->getUri(),
+            'method'  => $this->request->getMethod(),
         ];
 
         if ($this->logErrorDetails) {
             $context['trace'] = $exception->getTraceAsString();
         }
 
-        if ($this->logger !== null) {
-            $this->logger->error($context['message'], $context);
-        }
+        $this->logger->error($context['message'], $context);
     }
 
     private function sanitizeMessage(string $message): string
     {
         // Redact potential passwords, db credentials, or secrets in logged strings
         $pattern = '/(password|pass|secret|key|token|auth|pwd)=([^&\s;]+)/i';
+
         return (string)preg_replace($pattern, '$1=***REDACTED***', $message);
     }
 }

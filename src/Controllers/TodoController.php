@@ -4,40 +4,34 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\DTOs\CreateTodoDTO;
+use App\DTOs\UpdateTodoDTO;
+use App\Response\ApiResponse;
 use App\Services\TodoService;
+use App\DTOs\TodoListQueryDTO;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 class TodoController
 {
     public function __construct(
-        private TodoService $todoService = new TodoService()
-    ) {}
+        private TodoService $todoService,
+        private ApiResponse $response
+    ) {
+    }
 
     /**
      * GET /api/todos
      */
     public function index(Request $request, Response $response): Response
     {
-        $queryParams = $request->getQueryParams();
-        $completed = null;
+        $query = TodoListQueryDTO::fromQueryParams($request->getQueryParams());
+        $todos = $this->todoService->getAllTodos($query->completed);
 
-        if (isset($queryParams['completed'])) {
-            $val = strtolower((string)$queryParams['completed']);
-            if ($val === 'true' || $val === '1') {
-                $completed = true;
-            } elseif ($val === 'false' || $val === '0') {
-                $completed = false;
-            }
-        }
-
-        $todos = $this->todoService->getAllTodos($completed);
-
-        return $this->jsonResponse($response, [
-            'success' => true,
-            'count' => count($todos),
-            'data' => $todos,
-        ]);
+        return $this->response->success(
+            data: $todos,
+            meta: ['count' => count($todos)]
+        );
     }
 
     /**
@@ -45,20 +39,18 @@ class TodoController
      */
     public function show(Request $request, Response $response, array $args): Response
     {
-        $id = (int)$args['id'];
+        $id   = (int)$args['id'];
         $todo = $this->todoService->getTodoById($id);
 
-        if (!$todo) {
-            return $this->jsonResponse($response, [
-                'success' => false,
-                'message' => "Todo with ID {$id} not found."
-            ], 404);
+        if ( ! $todo) {
+            return $this->response->error(
+                message: "Todo with ID {$id} not found.",
+                type: 'NOT_FOUND',
+                statusCode: 404
+            );
         }
 
-        return $this->jsonResponse($response, [
-            'success' => true,
-            'data' => $todo,
-        ]);
+        return $this->response->success(data: $todo);
     }
 
     /**
@@ -67,25 +59,14 @@ class TodoController
     public function create(Request $request, Response $response): Response
     {
         $body = (array)($request->getParsedBody() ?? []);
+        $dto  = CreateTodoDTO::fromArray($body);
+        $todo = $this->todoService->createTodo($dto);
 
-        $title = trim((string)($body['title'] ?? ''));
-        $description = isset($body['description']) ? trim((string)$body['description']) : null;
-        $completed = !empty($body['completed']);
-
-        if (empty($title)) {
-            return $this->jsonResponse($response, [
-                'success' => false,
-                'message' => 'Validation error: "title" field is required.'
-            ], 422);
-        }
-
-        $todo = $this->todoService->createTodo($title, $description, $completed);
-
-        return $this->jsonResponse($response, [
-            'success' => true,
-            'message' => 'Todo created successfully.',
-            'data' => $todo,
-        ], 201);
+        return $this->response->success(
+            data: $todo,
+            message: 'Todo created successfully.',
+            statusCode: 201
+        );
     }
 
     /**
@@ -93,51 +74,24 @@ class TodoController
      */
     public function update(Request $request, Response $response, array $args): Response
     {
-        $id = (int)$args['id'];
+        $id   = (int)$args['id'];
         $body = (array)($request->getParsedBody() ?? []);
+        $dto  = UpdateTodoDTO::fromArray($body);
 
-        if (empty($body)) {
-            return $this->jsonResponse($response, [
-                'success' => false,
-                'message' => 'No update data provided.'
-            ], 400);
+        $updated = $this->todoService->updateTodo($id, $dto);
+
+        if ( ! $updated) {
+            return $this->response->error(
+                message: "Todo with ID {$id} not found.",
+                type: 'NOT_FOUND',
+                statusCode: 404
+            );
         }
 
-        $dataToUpdate = [];
-
-        if (array_key_exists('title', $body)) {
-            $title = trim((string)$body['title']);
-            if (empty($title)) {
-                return $this->jsonResponse($response, [
-                    'success' => false,
-                    'message' => 'Validation error: "title" cannot be empty.'
-                ], 422);
-            }
-            $dataToUpdate['title'] = $title;
-        }
-
-        if (array_key_exists('description', $body)) {
-            $dataToUpdate['description'] = $body['description'] !== null ? trim((string)$body['description']) : null;
-        }
-
-        if (array_key_exists('completed', $body)) {
-            $dataToUpdate['completed'] = (bool)$body['completed'];
-        }
-
-        $updated = $this->todoService->updateTodo($id, $dataToUpdate);
-
-        if (!$updated) {
-            return $this->jsonResponse($response, [
-                'success' => false,
-                'message' => "Todo with ID {$id} not found."
-            ], 404);
-        }
-
-        return $this->jsonResponse($response, [
-            'success' => true,
-            'message' => 'Todo updated successfully.',
-            'data' => $updated,
-        ]);
+        return $this->response->success(
+            data: $updated,
+            message: 'Todo updated successfully.'
+        );
     }
 
     /**
@@ -145,27 +99,19 @@ class TodoController
      */
     public function delete(Request $request, Response $response, array $args): Response
     {
-        $id = (int)$args['id'];
+        $id      = (int)$args['id'];
         $deleted = $this->todoService->deleteTodo($id);
 
-        if (!$deleted) {
-            return $this->jsonResponse($response, [
-                'success' => false,
-                'message' => "Todo with ID {$id} not found."
-            ], 404);
+        if ( ! $deleted) {
+            return $this->response->error(
+                message: "Todo with ID {$id} not found.",
+                type: 'NOT_FOUND',
+                statusCode: 404
+            );
         }
 
-        return $this->jsonResponse($response, [
-            'success' => true,
-            'message' => "Todo with ID {$id} deleted successfully."
-        ]);
-    }
-
-    private function jsonResponse(Response $response, array $data, int $status = 200): Response
-    {
-        $response->getBody()->write((string)json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
-        return $response
-            ->withHeader('Content-Type', 'application/json')
-            ->withStatus($status);
+        return $this->response->success(
+            message: "Todo with ID {$id} deleted successfully."
+        );
     }
 }

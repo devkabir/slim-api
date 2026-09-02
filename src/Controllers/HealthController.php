@@ -4,31 +4,37 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Config\AppConfig;
-use App\Config\AppLogger;
+use PDO;
+use Throwable;
 use App\Config\Cache;
-use App\Config\Database;
 use DateTimeImmutable;
 use DateTimeInterface;
+use App\Config\AppConfig;
+use Psr\Log\LoggerInterface;
+use App\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
-use Throwable;
 
 class HealthController
 {
+    public function __construct(
+        private PDO $pdo,
+        private ApiResponse $response,
+        private ?LoggerInterface $logger = null
+    ) {
+    }
+
     /**
      * Public liveness endpoint: verifies that the application process is running.
      * GET /health/live (or /health)
      */
     public function liveness(Request $request, Response $response): Response
     {
-        $payload = [
-            'status' => 'up',
-            'app' => 'Slim 4 Todo CRUD API',
+        return $this->response->json([
+            'status'    => 'up',
+            'app'       => 'Slim 4 Todo CRUD API',
             'timestamp' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
-        ];
-
-        return $this->jsonResponse($response, $payload, 200);
+        ]);
     }
 
     /**
@@ -40,46 +46,42 @@ class HealthController
         // Check authorization if a secret key is configured
         $secret = AppConfig::getHealthCheckSecret();
         if ($secret !== null) {
-            $authHeader = $request->getHeaderLine('Authorization');
+            $authHeader   = $request->getHeaderLine('Authorization');
             $customHeader = $request->getHeaderLine('X-Health-Key');
-            $queryKey = $request->getQueryParams()['key'] ?? null;
+            $queryKey     = $request->getQueryParams()['key'] ?? null;
 
             $providedToken = null;
-            if (!empty($customHeader)) {
+            if ( ! empty($customHeader)) {
                 $providedToken = trim($customHeader);
             } elseif (str_starts_with($authHeader, 'Bearer ')) {
                 $providedToken = trim(substr($authHeader, 7));
-            } elseif (!empty($queryKey) && is_string($queryKey)) {
+            } elseif ( ! empty($queryKey) && is_string($queryKey)) {
                 $providedToken = trim($queryKey);
             }
 
-            if ($providedToken === null || !hash_equals($secret, $providedToken)) {
-                return $this->jsonResponse($response, [
-                    'success' => false,
-                    'error' => [
-                        'type' => 'UNAUTHORIZED',
-                        'message' => 'Unauthorized: Invalid or missing health check key.',
-                    ]
-                ], 401);
+            if ($providedToken === null || ! hash_equals($secret, $providedToken)) {
+                return $this->response->error(
+                    message: 'Unauthorized: Invalid or missing health check key.',
+                    type: 'UNAUTHORIZED',
+                    statusCode: 401
+                );
             }
         }
 
         // Check MySQL Database
-        $dbStatus = 'unavailable';
+        $dbStatus  = 'unavailable';
         $dbHealthy = false;
         try {
-            $pdo = Database::getConnection();
-            $stmt = $pdo->query('SELECT 1');
+            $stmt = $this->pdo->query('SELECT 1');
             if ($stmt !== false) {
-                $dbStatus = 'connected';
+                $dbStatus  = 'connected';
                 $dbHealthy = true;
             }
         } catch (Throwable $e) {
-            // Log raw diagnostic info securely on the server
-            AppLogger::getLogger()->error('Database health check failed', [
-                'type' => get_class($e),
+            $this->logger?->error('Database health check failed', [
+                'type'    => get_class($e),
                 'message' => $e->getMessage(),
-                'code' => $e->getCode(),
+                'code'    => $e->getCode(),
             ]);
             $dbStatus = 'unavailable';
         }
@@ -87,27 +89,16 @@ class HealthController
         // Check Memcached
         $cacheStatus = Cache::isConnected() ? 'connected' : 'unavailable';
 
-        $isReady = $dbHealthy;
+        $isReady    = $dbHealthy;
         $httpStatus = $isReady ? 200 : 503;
 
-        $payload = [
-            'status' => $isReady ? 'ready' : 'unhealthy',
+        return $this->response->json([
+            'status'    => $isReady ? 'ready' : 'unhealthy',
             'timestamp' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
-            'services' => [
-                'mysql' => $dbStatus,
+            'services'  => [
+                'mysql'     => $dbStatus,
                 'memcached' => $cacheStatus,
             ],
-        ];
-
-        return $this->jsonResponse($response, $payload, $httpStatus);
-    }
-
-    private function jsonResponse(Response $response, array $data, int $status = 200): Response
-    {
-        $response->getBody()->write((string)json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        return $response
-            ->withHeader('Content-Type', 'application/json')
-            ->withHeader('X-Content-Type-Options', 'nosniff')
-            ->withStatus($status);
+        ], $httpStatus);
     }
 }

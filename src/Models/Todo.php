@@ -15,7 +15,8 @@ class Todo implements JsonSerializable
         public bool $completed = false,
         public ?string $created_at = null,
         public ?string $updated_at = null
-    ) {}
+    ) {
+    }
 
     public static function fromArray(array $data): self
     {
@@ -23,7 +24,7 @@ class Todo implements JsonSerializable
             id: isset($data['id']) ? (int)$data['id'] : null,
             title: (string)($data['title'] ?? ''),
             description: $data['description'] ?? null,
-            completed: !empty($data['completed']),
+            completed: ! empty($data['completed']),
             created_at: $data['created_at'] ?? null,
             updated_at: $data['updated_at'] ?? null
         );
@@ -32,12 +33,12 @@ class Todo implements JsonSerializable
     public function jsonSerialize(): array
     {
         return [
-            'id' => $this->id,
-            'title' => $this->title,
+            'id'          => $this->id,
+            'title'       => $this->title,
             'description' => $this->description,
-            'completed' => (bool)$this->completed,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            'completed'   => (bool)$this->completed,
+            'created_at'  => $this->created_at,
+            'updated_at'  => $this->updated_at,
         ];
     }
 }
