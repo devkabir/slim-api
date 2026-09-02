@@ -1,0 +1,33 @@
+# ==============================================================================
+# Defense-in-depth: Protect repository root if DocumentRoot is misconfigured
+#
+# IMPORTANT: In production, the web server DocumentRoot MUST point directly
+# to the /public directory, NOT to this root directory.
+# ==============================================================================
+
+# Disable directory listing
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Redirect plain HTTP to HTTPS
+    RewriteCond %{HTTPS} !=on [NC]
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Block direct access to sensitive root files and source directories
+    RewriteRule ^(\.env|composer\.(json|lock)|schema\.sql|SECURITY_IMPROVEMENT_PLAN\.md|README\.md|phpunit\.xml) - [F,L,NC]
+    RewriteRule ^(src|vendor|logs|tests|\.git|\.codegraph|\.idea)/ - [F,L,NC]
+
+    # Redirect root requests to public/ if DocumentRoot was incorrectly set to project root
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+<IfModule !mod_rewrite.c>
+    # If mod_rewrite is disabled, explicitly deny access to sensitive files
+    <FilesMatch "^(\.env|composer\.(json|lock)|schema\.sql|SECURITY_IMPROVEMENT_PLAN\.md|README\.md|phpunit\.xml)">
+        Require all denied
+    </FilesMatch>
+</IfModule>

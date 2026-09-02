@@ -1,4 +1,51 @@
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.php [QSA,L]
+# Disable directory browsing
+Options -Indexes
+
+# Follow symlinks if needed
+Options +FollowSymLinks
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # ----------------------------------------------------------------------
+    # 1. Redirect plain HTTP to HTTPS (Direct and Reverse Proxy support)
+    # ----------------------------------------------------------------------
+    RewriteCond %{HTTPS} !=on [NC]
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # ----------------------------------------------------------------------
+    # 2. Prevent access to hidden files/directories (e.g. .env, .git)
+    # ----------------------------------------------------------------------
+    RewriteRule "(^|/)\.(?!well-known)" - [F]
+
+    # ----------------------------------------------------------------------
+    # 3. Slim 4 Front Controller routing
+    # ----------------------------------------------------------------------
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 4. HTTP Security Headers
+# ----------------------------------------------------------------------
+<IfModule mod_headers.c>
+    # Prevent MIME-type sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Restrict Referrer information
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Strict Content Security Policy for API
+    Header always set Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+    # Prevent clickjacking
+    Header always set X-Frame-Options "DENY"
+
+    # Restrict browser APIs / hardware access
+    Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+
+    # HTTP Strict Transport Security (HSTS) - 1 year with subdomains & preload
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" "expr=%{HTTPS} == 'on' || %{HTTP:X-Forwarded-Proto} == 'https'"
+</IfModule>

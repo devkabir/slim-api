@@ -42,11 +42,6 @@ class Database
         return self::$instance;
     }
 
-    public static function setConnection(?PDO $pdo): void
-    {
-        self::$instance = $pdo;
-    }
-
     public static function reset(): void
     {
         self::$instance = null;

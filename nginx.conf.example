@@ -1,0 +1,109 @@
+# ==============================================================================
+# Nginx Production Configuration for Slim 4 API
+#
+# Key Features:
+# 1. HTTP -> HTTPS 301 Permanent Redirect
+# 2. Strict DocumentRoot: Exposes ONLY the public/ directory
+# 3. HTTP Strict Transport Security (HSTS) with preload and subdomains
+# 4. Security Headers: nosniff, CSP, Referrer-Policy, X-Frame-Options
+# 5. FastCGI PHP-FPM integration with Slim 4 front controller routing
+# ==============================================================================
+
+# 1. Plain HTTP Server Block - Redirect all traffic to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.example.com;
+
+    # Redirect all HTTP requests to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+# 2. HTTPS Server Block - Serve API Exclusively over HTTPS
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name api.example.com;
+
+    # --------------------------------------------------------------------------
+    # Document Root: EXPOSE ONLY THE public/ DIRECTORY
+    # NEVER set root to the project root directory!
+    # --------------------------------------------------------------------------
+    root /var/www/slim/public;
+    index index.php;
+
+    # --------------------------------------------------------------------------
+    # SSL/TLS Configuration
+    # --------------------------------------------------------------------------
+    ssl_certificate /etc/letsencrypt/live/api.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/api.example.com/chain.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # OCSP Stapling
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+    resolver_timeout 5s;
+
+    # --------------------------------------------------------------------------
+    # Security Headers & HSTS (Termination Layer)
+    # --------------------------------------------------------------------------
+    # HSTS: 1 year, all subdomains, eligible for HSTS preload
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    # Prevent MIME type sniffing
+    add_header X-Content-Type-Options "nosniff" always;
+
+    # Prevent clickjacking / framing
+    add_header X-Frame-Options "DENY" always;
+
+    # Restrict Referrer information
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Content Security Policy (strict default for API endpoints)
+    add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" always;
+
+    # Disable unnecessary browser features
+    add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+
+    # --------------------------------------------------------------------------
+    # Performance & Upload limits
+    # --------------------------------------------------------------------------
+    client_max_body_size 10M;
+    charset utf-8;
+
+    # --------------------------------------------------------------------------
+    # Request Routing (Slim 4 Front Controller)
+    # --------------------------------------------------------------------------
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    # Pass PHP scripts to FastCGI (PHP-FPM)
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.4-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param HTTPS on;
+        fastcgi_param HTTP_X_FORWARDED_PROTO https;
+        include fastcgi_params;
+
+        # Mitigate httpoxy vulnerability
+        fastcgi_param HTTP_PROXY "";
+    }
+
+    # Deny access to hidden files/directories (.git, .env, etc.)
+    location ~ /\.(?!well-known).* {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}

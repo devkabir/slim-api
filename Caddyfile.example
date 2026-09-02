@@ -1,0 +1,37 @@
+# ==============================================================================
+# Caddy Production Configuration for Slim 4 API
+#
+# Caddy automatically handles:
+# 1. Plain HTTP to HTTPS redirection (built-in)
+# 2. TLS certificate generation and renewal
+# 3. Document root limited strictly to public/
+# ==============================================================================
+
+api.example.com {
+    # Expose ONLY the public directory
+    root * /var/www/slim/public
+
+    # FastCGI to PHP-FPM
+    php_fastcgi unix//var/run/php/php8.4-fpm.sock
+
+    # Serve static files and fall back to index.php
+    file_server
+
+    # Security Headers & HSTS
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        -Server
+    }
+
+    # Deny access to hidden files (.env, .git, etc.)
+    @hidden {
+        path */.*
+        not path /.well-known/*
+    }
+    respond @hidden 404
+}

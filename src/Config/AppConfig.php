@@ -42,4 +42,80 @@ class AppConfig
 
         return ($secret !== null && trim((string)$secret) !== '') ? trim((string)$secret) : null;
     }
+
+    public static function isForceHttps(): bool
+    {
+        $force = $_ENV['FORCE_HTTPS'] ?? null;
+        if ($force === null) {
+            return self::isProduction();
+        }
+
+        return self::toBool($force);
+    }
+
+    public static function isHstsEnabled(): bool
+    {
+        $enabled = $_ENV['HSTS_ENABLED'] ?? null;
+        if ($enabled === null) {
+            return self::isProduction();
+        }
+
+        return self::toBool($enabled);
+    }
+
+    public static function getHstsMaxAge(): int
+    {
+        $maxAge = $_ENV['HSTS_MAX_AGE'] ?? null;
+        if ($maxAge !== null && is_numeric($maxAge)) {
+            return (int)$maxAge;
+        }
+
+        return 31536000; // 1 year default
+    }
+
+    public static function getHstsIncludeSubDomains(): bool
+    {
+        $include = $_ENV['HSTS_INCLUDE_SUBDOMAINS'] ?? 'true';
+
+        return self::toBool($include);
+    }
+
+    public static function getHstsPreload(): bool
+    {
+        $preload = $_ENV['HSTS_PRELOAD'] ?? 'false';
+
+        return self::toBool($preload);
+    }
+
+    public static function getReferrerPolicy(): string
+    {
+        $policy = $_ENV['REFERRER_POLICY'] ?? null;
+        if ($policy !== null && trim((string)$policy) !== '') {
+            return trim((string)$policy);
+        }
+
+        return 'strict-origin-when-cross-origin';
+    }
+
+    public static function getContentSecurityPolicy(): string
+    {
+        $csp = $_ENV['CONTENT_SECURITY_POLICY'] ?? null;
+        if ($csp !== null && trim((string)$csp) !== '') {
+            return trim((string)$csp);
+        }
+
+        return "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+    }
+
+    private static function toBool(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = strtolower(trim((string)$value));
+
+        return in_array($normalized, ['true', '1', 'yes', 'on'], true);
+    }
 }
+

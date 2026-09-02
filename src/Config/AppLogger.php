@@ -42,8 +42,4 @@ class AppLogger
         return self::$instance;
     }
 
-    public static function setLogger(LoggerInterface $logger): void
-    {
-        self::$instance = $logger;
-    }
 }
