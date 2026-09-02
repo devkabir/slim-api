@@ -4,55 +4,72 @@ declare(strict_types=1);
 
 namespace App\Middleware;
 
-use App\Config\Cache;
 use App\Config\Settings;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\Storage\CacheStorage;
 
 final class RateLimitMiddleware implements MiddlewareInterface
 {
-    private int $readLimitPerMinute;
-    private int $mutationLimitPerMinute;
-
-    /**
-     * Local in-memory fallback store when Memcached is unavailable
-     * @var array<string, array{count: int, reset_at: int}>
-     */
-    private static array $memoryStore = [];
+    private RateLimiterFactory $readLimiterFactory;
+    private RateLimiterFactory $mutationLimiterFactory;
+    private int $readLimit;
+    private int $mutationLimit;
 
     public function __construct(
         private readonly ResponseFactoryInterface $responseFactory,
-        private readonly Cache $cache,
-        private readonly Settings $settings
+        private readonly Settings $settings,
+        CacheItemPoolInterface $rateLimiterCachePool
     ) {
-        $this->readLimitPerMinute     = $this->settings->rateLimit['read_limit_per_minute'];
-        $this->mutationLimitPerMinute = $this->settings->rateLimit['mutation_limit_per_minute'];
+        $storage = new CacheStorage($rateLimiterCachePool);
+
+        $this->readLimit     = $this->settings->rateLimit['read_limit_per_minute'];
+        $this->mutationLimit = $this->settings->rateLimit['mutation_limit_per_minute'];
+
+        $this->readLimiterFactory = new RateLimiterFactory([
+            'id'       => 'read_tier',
+            'policy'   => 'fixed_window',
+            'limit'    => $this->readLimit,
+            'interval' => '60 seconds',
+        ], $storage);
+
+        $this->mutationLimiterFactory = new RateLimiterFactory([
+            'id'       => 'mutation_tier',
+            'policy'   => 'fixed_window',
+            'limit'    => $this->mutationLimit,
+            'interval' => '60 seconds',
+        ], $storage);
     }
 
     public function process(Request $request, RequestHandler $handler): Response
     {
         $method     = strtoupper($request->getMethod());
         $isMutation = in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true);
-        $maxLimit   = $isMutation ? $this->mutationLimitPerMinute : $this->readLimitPerMinute;
+        $maxLimit   = $isMutation ? $this->mutationLimit : $this->readLimit;
 
         $clientIp = $this->resolveClientIp($request);
-        $tier     = $isMutation ? 'mutation' : 'read';
-        $window   = 60; // 60-second sliding/fixed window
+        $factory  = $isMutation ? $this->mutationLimiterFactory : $this->readLimiterFactory;
+        $limiter  = $factory->create($clientIp);
 
-        $rateStatus = $this->checkRateLimit($clientIp, $tier, $maxLimit, $window);
+        $rateLimitResult = $limiter->consume(1);
 
-        if ($rateStatus['exceeded']) {
-            $retryAfter = max(1, $rateStatus['reset_at'] - time());
-            $response   = $this->responseFactory->createResponse(429)
+        $now        = time();
+        $retryAfter = max(1, $rateLimitResult->getRetryAfter()?->getTimestamp() ? ($rateLimitResult->getRetryAfter()->getTimestamp() - $now) : 60);
+        $resetAt    = $rateLimitResult->getRetryAfter()?->getTimestamp() ?? ($now + 60);
+        $remaining  = $rateLimitResult->getRemainingTokens();
+
+        if (! $rateLimitResult->isAccepted()) {
+            $response = $this->responseFactory->createResponse(429)
                 ->withHeader('Content-Type', 'application/json')
-                ->withHeader('X-Content-Type-Options', 'nosniff')
                 ->withHeader('Retry-After', (string)$retryAfter)
                 ->withHeader('X-RateLimit-Limit', (string)$maxLimit)
                 ->withHeader('X-RateLimit-Remaining', '0')
-                ->withHeader('X-RateLimit-Reset', (string)$rateStatus['reset_at']);
+                ->withHeader('X-RateLimit-Reset', (string)$resetAt);
 
             $response->getBody()->write((string)json_encode([
                 'success' => false,
@@ -70,66 +87,34 @@ final class RateLimitMiddleware implements MiddlewareInterface
 
         return $response
             ->withHeader('X-RateLimit-Limit', (string)$maxLimit)
-            ->withHeader('X-RateLimit-Remaining', (string)$rateStatus['remaining'])
-            ->withHeader('X-RateLimit-Reset', (string)$rateStatus['reset_at']);
-    }
-
-    /**
-     * @return array{exceeded: bool, remaining: int, reset_at: int}
-     */
-    private function checkRateLimit(string $clientIp, string $tier, int $maxLimit, int $window): array
-    {
-        $now       = time();
-        $windowKey = (int)floor($now / $window);
-        $cacheKey  = "rate_limit:{$tier}:{$clientIp}:{$windowKey}";
-        $resetAt   = ($windowKey + 1) * $window;
-
-        $memcached = $this->cache->getClient();
-
-        if ($memcached !== null) {
-            // Memcached atomic counter
-            $current = $memcached->increment($cacheKey, 1);
-            if ($current === false) {
-                $memcached->set($cacheKey, 1, $window + 10);
-                $current = 1;
-            }
-
-            $current = (int)$current;
-        } else {
-            // Local memory fallback
-            if (! isset(self::$memoryStore[$cacheKey]) || self::$memoryStore[$cacheKey]['reset_at'] <= $now) {
-                self::$memoryStore[$cacheKey] = ['count' => 1, 'reset_at' => $resetAt];
-                $current                      = 1;
-            } else {
-                self::$memoryStore[$cacheKey]['count']++;
-                $current = self::$memoryStore[$cacheKey]['count'];
-            }
-        }
-
-        $remaining = max(0, $maxLimit - $current);
-        $exceeded  = $current > $maxLimit;
-
-        return [
-            'exceeded'  => $exceeded,
-            'remaining' => $remaining,
-            'reset_at'  => $resetAt,
-        ];
+            ->withHeader('X-RateLimit-Remaining', (string)$remaining)
+            ->withHeader('X-RateLimit-Reset', (string)$resetAt);
     }
 
     private function resolveClientIp(Request $request): string
     {
-        $forwarded = $request->getHeaderLine('X-Forwarded-For');
-        if ($forwarded !== '') {
-            $ips = explode(',', $forwarded);
-            $ip  = trim($ips[0]);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
+        $remoteAddr = (string)($request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+
+        if ($this->isTrustedProxy($remoteAddr)) {
+            $forwarded = $request->getHeaderLine('X-Forwarded-For');
+            if ($forwarded !== '') {
+                $ips = explode(',', $forwarded);
+                $ip  = trim($ips[0]);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
             }
         }
 
-        $serverParams = $request->getServerParams();
-        $remoteAddr   = (string)($serverParams['REMOTE_ADDR'] ?? '127.0.0.1');
-
         return filter_var($remoteAddr, FILTER_VALIDATE_IP) ? $remoteAddr : '127.0.0.1';
+    }
+
+    private function isTrustedProxy(string $ip): bool
+    {
+        if ($ip === '' || empty($this->settings->trusted_proxies)) {
+            return false;
+        }
+
+        return in_array($ip, $this->settings->trusted_proxies, true);
     }
 }

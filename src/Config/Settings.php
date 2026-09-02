@@ -9,6 +9,8 @@ use RuntimeException;
 final readonly class Settings
 {
     /**
+     * @param string[] $trusted_proxies
+     * @param string[] $cors_allowed_origins
      * @param array{
      *     host: string,
      *     port: int,
@@ -49,6 +51,11 @@ final readonly class Settings
     public function __construct(
         public string $env,
         public bool $debug,
+        public string $basePath,
+        public bool $routeCacheEnabled,
+        public ?string $routeCacheFile,
+        public array $trusted_proxies,
+        public array $cors_allowed_origins,
         public array $db,
         public array $memcached,
         public array $security,
@@ -86,6 +93,33 @@ final readonly class Settings
         }
         if ($isProd) {
             $debug = false; // Strictly false in production
+        }
+
+        // Base path support
+        $basePath = trim((string)($source['APP_BASE_PATH'] ?? $source['BASE_PATH'] ?? ''));
+
+        // Route cache configuration (enabled by default only in production)
+        $routeCacheEnabled = isset($source['ROUTE_CACHE_ENABLED'])
+            ? self::toBool($source['ROUTE_CACHE_ENABLED'])
+            : $isProd;
+
+        $projectRoot = dirname(__DIR__, 2);
+        $routeCacheFile = isset($source['ROUTE_CACHE_FILE']) && trim((string)$source['ROUTE_CACHE_FILE']) !== ''
+            ? trim((string)$source['ROUTE_CACHE_FILE'])
+            : $projectRoot . '/var/cache/routes.php';
+
+        // Trusted proxies (comma separated list of IPs/CIDRs)
+        $trustedProxiesRaw = (string)($source['TRUSTED_PROXIES'] ?? '');
+        $trustedProxies = [];
+        if (trim($trustedProxiesRaw) !== '') {
+            $trustedProxies = array_values(array_filter(array_map('trim', explode(',', $trustedProxiesRaw))));
+        }
+
+        // CORS allowed origins (comma separated, default '*')
+        $corsOriginsRaw = (string)($source['CORS_ALLOWED_ORIGINS'] ?? '*');
+        $corsOrigins = ['*'];
+        if (trim($corsOriginsRaw) !== '') {
+            $corsOrigins = array_values(array_filter(array_map('trim', explode(',', $corsOriginsRaw))));
         }
 
         // Database settings
@@ -158,6 +192,11 @@ final readonly class Settings
         $settings = new self(
             env: $appEnv,
             debug: $debug,
+            basePath: $basePath,
+            routeCacheEnabled: $routeCacheEnabled,
+            routeCacheFile: $routeCacheFile,
+            trusted_proxies: $trustedProxies,
+            cors_allowed_origins: $corsOrigins,
             db: $db,
             memcached: $memcached,
             security: $security,

@@ -16,4 +16,6 @@
 
 # Logs & Cache
 *.log
+logs/
+var/
 .phpunit.result.cache

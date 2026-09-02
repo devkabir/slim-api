@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Handlers;
 
+use App\Exceptions\TodoNotFoundException;
+use App\Exceptions\ValidationException;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Log\LoggerInterface;
@@ -15,7 +17,7 @@ use Slim\Exception\HttpNotFoundException;
 use Slim\Exception\HttpUnauthorizedException;
 use Slim\Handlers\ErrorHandler as SlimErrorHandler;
 use Slim\Interfaces\CallableResolverInterface;
-use App\Exceptions\ValidationException;
+use Throwable;
 
 final class HttpErrorHandler extends SlimErrorHandler
 {
@@ -45,12 +47,17 @@ final class HttpErrorHandler extends SlimErrorHandler
         $type       = self::TYPE_SERVER_ERROR;
         $message    = 'An internal server error occurred.';
         $details    = null;
+        $headers    = [];
 
         if ($exception instanceof ValidationException) {
             $statusCode = 422;
             $type       = self::TYPE_VALIDATION_ERROR;
             $message    = $exception->getMessage();
             $details    = $exception->getErrors();
+        } elseif ($exception instanceof TodoNotFoundException) {
+            $statusCode = 404;
+            $type       = self::TYPE_NOT_FOUND;
+            $message    = $exception->getMessage();
         } elseif ($exception instanceof HttpException) {
             $statusCode = (int)$exception->getCode();
             $message    = $exception->getMessage();
@@ -59,6 +66,10 @@ final class HttpErrorHandler extends SlimErrorHandler
                 $type = self::TYPE_NOT_FOUND;
             } elseif ($exception instanceof HttpMethodNotAllowedException) {
                 $type = self::TYPE_NOT_ALLOWED;
+                $allowed = $exception->getAllowedMethods();
+                if (! empty($allowed)) {
+                    $headers['Allow'] = implode(', ', $allowed);
+                }
             } elseif ($exception instanceof HttpUnauthorizedException) {
                 $type = self::TYPE_UNAUTHORIZED;
             } elseif ($exception instanceof HttpForbiddenException) {
@@ -70,6 +81,15 @@ final class HttpErrorHandler extends SlimErrorHandler
             } elseif ($statusCode === 415) {
                 $type = self::TYPE_UNSUPPORTED_MEDIA_TYPE;
             }
+        } elseif ($exception->getCode() === 400 || $exception->getCode() === 422 || $exception->getCode() === 404) {
+            $statusCode = (int)$exception->getCode();
+            $message    = $exception->getMessage();
+            $type       = match ($statusCode) {
+                400     => self::TYPE_BAD_REQUEST,
+                422     => self::TYPE_VALIDATION_ERROR,
+                404     => self::TYPE_NOT_FOUND,
+                default => self::TYPE_SERVER_ERROR,
+            };
         }
 
         $payload = [
@@ -95,12 +115,27 @@ final class HttpErrorHandler extends SlimErrorHandler
             ];
         }
 
-        $response = $this->responseFactory->createResponse($statusCode);
-        $response->getBody()->write((string)json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $encoded = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            $encoded = json_encode([
+                'success' => false,
+                'error'   => [
+                    'type'    => self::TYPE_SERVER_ERROR,
+                    'message' => 'An internal server error occurred during response encoding.',
+                ],
+            ]);
+        }
 
-        return $response
-            ->withHeader('Content-Type', 'application/json')
-            ->withHeader('X-Content-Type-Options', 'nosniff');
+        $response = $this->responseFactory->createResponse($statusCode);
+        $response->getBody()->write((string)$encoded);
+
+        $response = $response->withHeader('Content-Type', 'application/json');
+
+        foreach ($headers as $headerName => $headerValue) {
+            $response = $response->withHeader($headerName, $headerValue);
+        }
+
+        return $response;
     }
 
     protected function writeToErrorLog(): void
@@ -129,7 +164,6 @@ final class HttpErrorHandler extends SlimErrorHandler
 
     private function sanitizeMessage(string $message): string
     {
-        // Redact potential passwords, db credentials, or secrets in logged strings
         $message = (string)preg_replace('/(password|pass|secret|key|token|auth|pwd)=([^&\s;]+)/i', '$1=***REDACTED***', $message);
         $message = (string)preg_replace('/(using password:\s*)(YES|NO)/i', '$1***', $message);
 

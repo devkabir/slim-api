@@ -24,18 +24,15 @@ final readonly class HttpsEnforcementMiddleware implements MiddlewareInterface
         if ($this->settings->security['force_https'] && ! $this->isHttps($request)) {
             $uri = $request->getUri();
 
-            // Build the HTTPS target URI
             $targetUri = $uri
                 ->withScheme('https')
-                ->withPort(null); // standard HTTPS port (443)
+                ->withPort(null);
 
             $method     = strtoupper($request->getMethod());
-            // Safe methods can use 301, while mutation methods MUST use 308 to preserve method and request body (RFC 7538)
             $statusCode = in_array($method, ['GET', 'HEAD', 'OPTIONS'], true) ? 301 : 308;
 
             $response = $this->responseFactory->createResponse($statusCode)
-                ->withHeader('Location', (string)$targetUri)
-                ->withHeader('X-Content-Type-Options', 'nosniff');
+                ->withHeader('Location', (string)$targetUri);
 
             $response->getBody()->write((string)json_encode([
                 'success' => false,
@@ -52,28 +49,28 @@ final readonly class HttpsEnforcementMiddleware implements MiddlewareInterface
         return $handler->handle($request);
     }
 
-    /**
-     * Check if the incoming request was made via HTTPS directly or via an SSL-terminating reverse proxy.
-     */
     private function isHttps(Request $request): bool
     {
         if (strtolower($request->getUri()->getScheme()) === 'https') {
             return true;
         }
 
-        $forwardedProto = strtolower($request->getHeaderLine('X-Forwarded-Proto'));
-        if ($forwardedProto === 'https') {
-            return true;
-        }
+        $remoteAddr = (string)($request->getServerParams()['REMOTE_ADDR'] ?? '');
+        if ($this->isTrustedProxy($remoteAddr)) {
+            $forwardedProto = strtolower($request->getHeaderLine('X-Forwarded-Proto'));
+            if ($forwardedProto === 'https') {
+                return true;
+            }
 
-        $forwardedSsl = strtolower($request->getHeaderLine('X-Forwarded-Ssl'));
-        if ($forwardedSsl === 'on') {
-            return true;
-        }
+            $forwardedSsl = strtolower($request->getHeaderLine('X-Forwarded-Ssl'));
+            if ($forwardedSsl === 'on') {
+                return true;
+            }
 
-        $frontEndHttps = strtolower($request->getHeaderLine('Front-End-Https'));
-        if ($frontEndHttps === 'on') {
-            return true;
+            $frontEndHttps = strtolower($request->getHeaderLine('Front-End-Https'));
+            if ($frontEndHttps === 'on') {
+                return true;
+            }
         }
 
         $serverParams = $request->getServerParams();
@@ -88,5 +85,14 @@ final readonly class HttpsEnforcementMiddleware implements MiddlewareInterface
         }
 
         return false;
+    }
+
+    private function isTrustedProxy(string $ip): bool
+    {
+        if ($ip === '' || empty($this->settings->trusted_proxies)) {
+            return false;
+        }
+
+        return in_array($ip, $this->settings->trusted_proxies, true);
     }
 }

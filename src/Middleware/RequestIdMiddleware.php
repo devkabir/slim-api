@@ -33,18 +33,6 @@ final readonly class RequestIdMiddleware implements MiddlewareInterface
         // Attach to request attributes
         $request = $request->withAttribute('request_id', $requestId);
 
-        // Inject request_id into Monolog logging context processor for incident correlation
-        if ($this->logger !== null && method_exists($this->logger, 'pushProcessor')) {
-            $this->logger->pushProcessor(function (array|\Monolog\LogRecord $record) use ($requestId) {
-                if ($record instanceof \Monolog\LogRecord) {
-                    return $record->with(extra: array_merge($record->extra, ['request_id' => $requestId]));
-                }
-                $record['extra']['request_id'] = $requestId;
-
-                return $record;
-            });
-        }
-
         $response = $handler->handle($request);
 
         return $response->withHeader(self::HEADER_NAME, $requestId);

@@ -2,7 +2,7 @@
 name: slim-api-development
 description: >-
   Expert guide and runbook for developing, extending, testing, and maintaining high-performance,
-  secure Slim 4 REST API applications with PHP 8.4+, PHP-DI, PDO MySQL, Memcached (Cache-Aside),
+  secure Slim 4 REST API applications with PHP 8.4+, PHP-DI, Doctrine DBAL, Symfony Cache (Cache-Aside),
   and hardened PSR-7/PSR-15 middleware. Use whenever working on Slim 4 PHP micro-framework projects,
   adding CRUD endpoints, creating DTOs with strict validation, implementing repository/service layers,
   configuring cache-aside strategies, managing DI container definitions, or hardening API security.
@@ -19,16 +19,17 @@ This skill provides comprehensive instructions, patterns, and runbooks for build
 The codebase follows strict separation of concerns across layered components:
 
 ```
-Request ──► [PSR-15 Middleware Pipeline] ──► [Slim 4 Route] ──► [Controller]
+Request ──► [PSR-15 Middleware Pipeline] ──► [Slim 4 Route] ──► [Action]
                                                                      │
                                                                  (DTO Validation)
                                                                      │
                                                                      ▼
                                                                  [Service]
                                                                 /         \
-                                                     (Cache-Aside)     [Repository]
+                                                     (Cache-Aside)     [Repository Interface]
                                                           │                 │
-                                                     [Memcached]        [PDO MySQL]
+                                                   [Symfony Cache]   [Doctrine DBAL 4]
+                                                    (Memcached)         (MySQL)
 ```
 
 ### Core Conventions
@@ -37,8 +38,8 @@ Request ──► [PSR-15 Middleware Pipeline] ──► [Slim 4 Route] ──�
 - **DTOs**: `final readonly class` with static `fromArray()` / `fromQueryParams()` methods enforcing strict payload validation.
 - **Configuration**: Immutable [`Settings`](file:///Users/devkabir/Sites/slim/src/Config/Settings.php) object created during bootstrap via `Settings::fromEnv()` and injected into infrastructure and middleware (no static environment lookups).
 - **Dependency Injection**: `php-di/php-di` v7 via [`src/Bootstrap/ContainerFactory.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/ContainerFactory.php) as the single composition root. Zero static singletons or service locators.
-- **Application Factory**: App created via `AppFactory::createFromContainer($container)` with support for prebuilt containers.
-- **HTTP / PSR Standards**: PSR-7 (`slim/psr7`), PSR-15 Middleware, PSR-11 Container, PSR-3 Logger (`monolog/monolog`).
+- **Application Factory**: App created via `AppFactory::createFromContainer($container)` with support for prebuilt containers, base path, and route caching.
+- **HTTP / PSR Standards**: PSR-7 (`slim/psr7`), PSR-15 Middleware, PSR-11 Container, PSR-3 Logger (`monolog/monolog`), PSR-6 Cache (`symfony/cache`).
 - **Response Format**: Standardized envelope via [`ApiResponse`](file:///Users/devkabir/Sites/slim/src/Response/ApiResponse.php).
 
 ---
@@ -116,14 +117,13 @@ Create strict DTOs throwing [`ValidationException`](file:///Users/devkabir/Sites
 - **`Update<Entity>DTO`**: Check partial payload fields, validate types, provide `toArray()`.
 - **`<Entity>ListQueryDTO`**: Parse query params (`page`, `limit` capped by `HARD_MAX_LIMIT = 100`, filter options).
 
-### 4. Repository Layer (`src/Repositories/<Entity>Repository.php`)
-- `final readonly class` injecting `PDO` and optional `Psr\Log\LoggerInterface`.
-- Use **real server-side prepared statements** (`PDO::ATTR_EMULATE_PREPARES => false`).
-- Bind explicit parameter types (`PDO::PARAM_INT`, `PDO::PARAM_STR`).
+### 4. Repository Layer (`src/Repositories/<Entity>RepositoryInterface.php`)
+- `final readonly class Doctrine<Entity>Repository implements <Entity>RepositoryInterface` injecting `Doctrine\DBAL\Connection` and optional `Psr\Log\LoggerInterface`.
+- Use **Doctrine DBAL parameter binding** (`ParameterType::INTEGER`, `ParameterType::STRING`, `ParameterType::NULL`).
 - Catch `Throwable`, log error context, and re-throw.
 
 ### 5. Service Layer (`src/Services/<Entity>Service.php`)
-- `final readonly class` injecting `<Entity>Repository`, [`App\Config\Cache`](file:///Users/devkabir/Sites/slim/src/Config/Cache.php), and optional `Psr\Log\LoggerInterface`.
+- `final readonly class` injecting `<Entity>RepositoryInterface`, [`App\Services\CacheService`](file:///Users/devkabir/Sites/slim/src/Services/CacheService.php), and optional `Psr\Log\LoggerInterface`.
 - Implement Cache-Aside caching via injected `$this->cache`:
 - Use **O(1) versioned list invalidation**:
   ```php
@@ -140,27 +140,32 @@ Create strict DTOs throwing [`ValidationException`](file:///Users/devkabir/Sites
   $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
   ```
 
-### 6. Controller (`src/Controllers/<Entity>Controller.php`)
-- `final readonly class` injecting `<Entity>Service` and [`ApiResponse`](file:///Users/devkabir/Sites/slim/src/Response/ApiResponse.php).
-- Handle HTTP requests, parse body/params into DTOs, invoke service, return formatted JSON response.
-- Validate path parameter IDs (`validateId()`) to ensure positive integers.
+### 6. Invokable Actions (`src/Actions/<Module>/<Action>.php`)
+- `final readonly class` for each single-purpose endpoint (`ListItemsAction`, `GetItemAction`, `CreateItemAction`, `UpdateItemAction`, `DeleteItemAction`).
+- Inject `<Entity>Service`, [`ApiResponse`](file:///Users/devkabir/Sites/slim/src/Response/ApiResponse.php), and `RouteParserInterface`.
+- Revalidate route identifiers inside actions.
+- Add `Location` header on resource creation via `RouteParserInterface->urlFor('items.show', ['id' => (string)$item->id])`.
 
 ### 7. Dependency Injection & Routing
 1. **Register in [`src/Bootstrap/ContainerFactory.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/ContainerFactory.php)**:
    ```php
-   ItemRepository::class => autowire(ItemRepository::class),
-   ItemService::class    => autowire(ItemService::class),
-   ItemController::class => autowire(ItemController::class),
+   ItemRepositoryInterface::class => autowire(DoctrineItemRepository::class),
+   ItemService::class             => autowire(ItemService::class),
+   ListItemsAction::class         => autowire(ListItemsAction::class),
+   GetItemAction::class           => autowire(GetItemAction::class),
+   CreateItemAction::class        => autowire(CreateItemAction::class),
+   UpdateItemAction::class        => autowire(UpdateItemAction::class),
+   DeleteItemAction::class        => autowire(DeleteItemAction::class),
    ```
 2. **Register in [`src/Bootstrap/Routes.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/Routes.php)**:
    ```php
    $app->group('/api/items', function (RouteCollectorProxy $group) {
-       $group->get('', [ItemController::class, 'index']);
-       $group->get('/{id:[0-9]+}', [ItemController::class, 'show']);
-       $group->post('', [ItemController::class, 'create']);
-       $group->put('/{id:[0-9]+}', [ItemController::class, 'update']);
-       $group->patch('/{id:[0-9]+}', [ItemController::class, 'update']);
-       $group->delete('/{id:[0-9]+}', [ItemController::class, 'delete']);
+       $group->get('', ListItemsAction::class)->setName('items.index');
+       $group->get('/{id:[0-9]+}', GetItemAction::class)->setName('items.show');
+       $group->post('', CreateItemAction::class)->setName('items.create');
+       $group->put('/{id:[0-9]+}', UpdateItemAction::class)->setName('items.update');
+       $group->patch('/{id:[0-9]+}', UpdateItemAction::class)->setName('items.patch');
+       $group->delete('/{id:[0-9]+}', DeleteItemAction::class)->setName('items.delete');
    });
    ```
 
@@ -203,7 +208,7 @@ Create strict DTOs throwing [`ValidationException`](file:///Users/devkabir/Sites
 | Exception / Situation | HTTP Status | Error Type Code |
 | :--- | :--- | :--- |
 | `ValidationException` | `422 Unprocessable Entity` | `VALIDATION_ERROR` |
-| `HttpNotFoundException` | `404 Not Found` | `NOT_FOUND` |
+| `TodoNotFoundException` / `HttpNotFoundException` | `404 Not Found` | `NOT_FOUND` |
 | `HttpMethodNotAllowedException` | `405 Method Not Allowed` | `NOT_ALLOWED` |
 | `HttpUnauthorizedException` / Invalid Health Key | `401 Unauthorized` | `UNAUTHORIZED` |
 | `HttpForbiddenException` | `403 Forbidden` | `FORBIDDEN` |
@@ -218,20 +223,23 @@ Create strict DTOs throwing [`ValidationException`](file:///Users/devkabir/Sites
 ## 🔒 Security & Middleware Pipeline
 
 Middleware executes in FIFO order on requests and LIFO on responses:
-1. **`HttpsEnforcementMiddleware`**: Enforces HTTPS (301 for GET/HEAD, 308 for POST/PUT/PATCH/DELETE to maintain payload integrity).
-2. **`RequestIdMiddleware`**: Sanitizes or generates `X-Request-ID` (UUID/hex), sets it on response and pushes processor to Monolog logger.
-3. **`SecurityHeadersMiddleware`**: Injects `X-Content-Type-Options: nosniff`, `Content-Security-Policy`, `Referrer-Policy`, `X-Frame-Options: DENY`, and `Strict-Transport-Security`.
-4. **`RateLimitMiddleware`**: Distinguishes Read vs Mutation limit tiers (e.g., 300 req/min for reads, 60 req/min for mutations), returns 429 with `Retry-After`.
-5. **`ErrorMiddleware` (`HttpErrorHandler`)**: Catches all unhandled exceptions, logs sanitized context (redacting secrets/passwords), hides debug traces in production.
-6. **`CorsMiddleware`**: Handles preflight `OPTIONS` and CORS headers (`Access-Control-Allow-*`).
-7. **`JsonBodyParserMiddleware`**: Validates JSON content type and decodes request bodies safely.
+1. **`RequestIdMiddleware`**: Sanitizes or generates `X-Request-ID` (UUID/hex), sets it on response and attaches to request attribute.
+2. **`ResponseDecorationMiddleware`**: Consolidates CORS headers and security headers (`X-Content-Type-Options: nosniff`, `Content-Security-Policy`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Strict-Transport-Security`, `Server-Timing`).
+3. **`ErrorMiddleware` (`HttpErrorHandler`)**: Catches all unhandled exceptions, maps to public JSON error envelope, logs sanitized context, and preserves protocol headers (`Allow`).
+4. **`HttpsEnforcementMiddleware`**: Enforces HTTPS (301 for GET/HEAD/OPTIONS, 308 for POST/PUT/PATCH/DELETE) evaluating proxy headers only for trusted proxies.
+5. **`MethodOverrideMiddleware`**: Accepts `X-HTTP-Method-Override` on POST requests for PUT, PATCH, DELETE.
+6. **`RateLimitMiddleware`**: Backed by Symfony RateLimiter (300 req/min for reads, 60 req/min for mutations), returns 429 with `Retry-After` and `X-RateLimit-*`.
+7. **`RoutingMiddleware`**: Slim 4 route dispatcher with FastRoute route caching in production and base path support.
+8. **`RequestBodyGuardMiddleware`**: Validates JSON media type, max payload size, and non-empty bodies before parsing.
+9. **`BodyParsingMiddleware`**: Native Slim body parser with strict JSON parser rejecting non-object top-level payloads.
+10. **`ReadinessAuthMiddleware`**: Route-specific guard for `/health/ready` checking `X-Health-Key` or Bearer token.
 
 ---
 
-## ⚡ Caching Strategy (Memcached Cache-Aside)
+## ⚡ Caching Strategy (Symfony Cache with Memcached)
 
 1. **Private Binding**: Memcached must bind to `127.0.0.1` or private VPC IP, never `0.0.0.0`.
-2. **Resilience & Fallback**: If Memcached is offline, [`Cache`](file:///Users/devkabir/Sites/slim/src/Config/Cache.php) falls back transparently to direct MySQL queries without crashing the API.
+2. **Resilience & Fallback**: If Memcached is offline, [`CachePoolFactory`](file:///Users/devkabir/Sites/slim/src/Config/CachePoolFactory.php) falls back transparently to filesystem or array caching without crashing the API.
 3. **Never Scan All Keys**: Do **not** use `Memcached::getAllKeys()` or flush the entire cache in production. Use O(1) versioned namespace keys (`v{version}_...`) to invalidate paginated queries instantly.
 4. **Log Sanitization**: Redact any potential passwords, DB credentials, or tokens before writing to log files.
 

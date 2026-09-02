@@ -1,18 +1,20 @@
-# Slim 4 Todo List CRUD API (with Memcached & MySQL)
+# Slim 4 Todo List CRUD API (with Doctrine DBAL, Symfony Cache & MySQL)
 
-A RESTful Todo List CRUD API built using **Slim 4**, **MySQL** (via PDO), and **Memcached** (Cache-Aside pattern).
+A modern, high-performance RESTful Todo List CRUD API built using **Slim 4**, **Doctrine DBAL 4.4**, **Symfony Cache** (Memcached Cache-Aside with Filesystem fallback), **Symfony RateLimiter**, and **PHP-DI 7**.
 
 ---
 
 ## 🚀 Features
 
-- **Slim 4 Framework**: Fast and lightweight PSR-7 / PSR-15 micro-framework.
-- **HTTPS & Transport Security**: Reverse proxy redirection, HSTS enforcement, and strict `public/` web server exposure.
-- **Security Headers**: Automatic injection of `X-Content-Type-Options: nosniff`, `Content-Security-Policy`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, and `Permissions-Policy`.
-- **Hardened Memcached**: Private interface binding, optional SASL authentication, O(1) versioned cache namespaces & targeted key deletions avoiding `getAllKeys()`, and sanitized failure logging.
-- **MySQL Persistence**: PDO prepared statements for secure, SQL-injection safe CRUD operations.
-- **CORS & JSON Middleware**: Cross-origin requests support & automatic JSON request body decoding.
-- **Input Validation**: Clean validation for required fields and request payloads.
+- **Slim 4 Framework**: Fast and lightweight PSR-7 / PSR-15 micro-framework with native routing, route caching, and body parsing.
+- **PHP-DI 7 Composition Root**: Centrally registered PSR interfaces, infrastructure, repositories, services, actions, and middleware.
+- **Doctrine DBAL 4.4**: Explicit parameter-bound database persistence with MySQL prepared statements and connection pooling.
+- **Symfony Cache (PSR-6)**: Memcached Cache-Aside pattern with transparent Filesystem/Array fallback, O(1) versioned namespace invalidation, and targeted key deletions.
+- **Symfony RateLimiter**: Fixed-window rate limiting (300 read / 60 mutation requests per minute) backed by dedicated cache storage and trusted proxy verification.
+- **Security & Headers**: Automatic injection of `X-Content-Type-Options: nosniff`, `Content-Security-Policy`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Strict-Transport-Security`, and CORS origin allowlists.
+- **Method Override**: Header-only `X-HTTP-Method-Override` support on POST requests (allowing PUT, PATCH, DELETE).
+- **Domain & Error Handling**: Centralized `HttpErrorHandler` mapping domain and HTTP exceptions to structured JSON response envelopes.
+- **Location Headers**: `Location` response header automatically generated on todo creation via Slim's `RouteParserInterface`.
 
 ---
 
@@ -21,7 +23,7 @@ A RESTful Todo List CRUD API built using **Slim 4**, **MySQL** (via PDO), and **
 ```
 .
 ├── composer.json               # Dependencies and PSR-4 autoloading
-├── .env                        # Environment configuration (DB, Memcached, Security)
+├── .env                        # Environment configuration (DB, Memcached, Security, Proxies)
 ├── .env.example                # Example environment configuration
 ├── schema.sql                  # MySQL database and table schema
 ├── nginx.conf.example          # Production Nginx SSL/TLS, HSTS, and redirect configuration
@@ -29,28 +31,43 @@ A RESTful Todo List CRUD API built using **Slim 4**, **MySQL** (via PDO), and **
 ├── scripts/
 │   └── update-valet-config.sh  # Laravel Valet Nginx automated configuration script
 ├── public/
-│   ├── index.php               # Application entry point and route definitions
+│   ├── index.php               # Application entry point (requires bootstrap/app.php)
 │   └── .htaccess               # Apache URL rewrite rules & Security headers
+├── bootstrap/
+│   └── app.php                 # Creates and bootstraps application instance
 └── src/
+    ├── Actions/                # Invokable Action controllers
+    │   ├── Home/
+    │   │   └── ApiInfoAction.php
+    │   ├── Health/
+    │   │   ├── LivenessAction.php
+    │   │   └── ReadinessAction.php
+    │   └── Todo/
+    │       ├── ListTodosAction.php
+    │       ├── GetTodoAction.php
+    │       ├── CreateTodoAction.php
+    │       ├── UpdateTodoAction.php
+    │       └── DeleteTodoAction.php
+    ├── Bootstrap/
+    │   ├── Bootstrap.php       # Dotenv, PHP runtime ini settings, exception handler
+    │   ├── ContainerFactory.php# PHP-DI single composition root
+    │   ├── Middleware.php      # PSR-15 Middleware registration pipeline
+    │   └── Routes.php          # Named HTTP route mappings
     ├── Config/
     │   ├── Settings.php        # Immutable application configuration
-    │   ├── Database.php        # PDO MySQL connection factory
-    │   ├── Cache.php           # Memcached service & cache-aside helper
+    │   ├── Database.php        # Doctrine DBAL Connection factory
+    │   ├── CachePoolFactory.php# PSR-6 CacheItemPoolInterface factory
+    │   ├── Cache.php           # Cache helper proxy
     │   └── AppLogger.php       # PSR-3 Monolog Logger factory
-    ├── Controllers/
-    │   ├── HealthController.php# Liveness and protected readiness checks
-    │   └── TodoController.php  # Handles RESTful requests & responses
-    ├── Models/
-    │   └── Todo.php            # Todo entity model
-    ├── Repositories/
-    │   └── TodoRepository.php  # Direct MySQL query execution
-    ├── Services/
-    │   └── TodoService.php     # Business logic & Cache-Aside coordination
-    └── Middleware/
-        ├── HttpsEnforcementMiddleware.php # HTTP -> HTTPS 301/308 redirect
-        ├── SecurityHeadersMiddleware.php  # nosniff, CSP, Referrer-Policy, HSTS
-        ├── JsonBodyParserMiddleware.php
-        └── CorsMiddleware.php
+    ├── DTOs/                   # Readonly request validation DTOs
+    ├── Exceptions/             # ValidationException, TodoNotFoundException
+    ├── Handlers/               # HttpErrorHandler (Slim 4 error handler)
+    ├── Health/                 # Modular readiness checks (MySQL, Memcached)
+    ├── Middleware/             # RequestId, ResponseDecoration, Https, MethodOverride, RateLimit, BodyGuard
+    ├── Models/                 # Todo entity model (JsonSerializable)
+    ├── Repositories/           # TodoRepositoryInterface & DoctrineTodoRepository
+    ├── Response/               # Standardized ApiResponse envelope
+    └── Services/               # TodoService & CacheService
 ```
 
 ---
@@ -80,6 +97,22 @@ Copy `.env.example` to `.env` and configure credentials:
 ```env
 APP_ENV=development
 APP_DEBUG=true
+HEALTH_CHECK_SECRET=your-secret-health-key-here
+
+# Routing & Base Path
+APP_BASE_PATH=
+ROUTE_CACHE_ENABLED=false
+
+# Proxy & CORS Configuration
+TRUSTED_PROXIES=127.0.0.1
+CORS_ALLOWED_ORIGINS=*
+
+# Rate Limiting (Requests per minute)
+RATE_LIMIT_READ=300
+RATE_LIMIT_MUTATION=60
+
+# Request Body Limit (Bytes)
+MAX_BODY_SIZE_BYTES=1048576
 
 # Security & HTTPS Configuration
 FORCE_HTTPS=false
@@ -90,41 +123,27 @@ HSTS_PRELOAD=false
 REFERRER_POLICY=strict-origin-when-cross-origin
 CONTENT_SECURITY_POLICY="default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
-# Database Configuration
+# Database Configuration (Least-privileged dedicated user)
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=slim_todo_db
-DB_USER=root
-DB_PASS=
+DB_USER=todo_app
+DB_PASS=your-database-password
 
-# Memcached Configuration (bind strictly to private interface)
+# Memcached Configuration (Bind to 127.0.0.1 / private VPC interface only)
 MEMCACHED_HOST=127.0.0.1
 MEMCACHED_PORT=11211
 MEMCACHED_TTL=3600
-# Optional SASL Authentication
-MEMCACHED_USERNAME=
-MEMCACHED_PASSWORD=
 ```
 
 ### 4. Run Development Server
 
 #### Option A: Laravel Valet (Recommended)
 
-To configure and serve this project with **Laravel Valet** at `https://slim.test` using all production security headers and Nginx settings:
-
 ```bash
-# Make the helper script executable (if not already)
 chmod +x scripts/update-valet-config.sh
-
-# Run the Valet configuration script
 ./scripts/update-valet-config.sh
 ```
-
-This script automatically:
-
-1. Links and secures `slim.test` with local TLS certificates.
-2. Configures Nginx with the exact directives from `nginx.conf.example` (HSTS, CSP, Permissions-Policy, strict `public/` DocumentRoot, timeouts, hidden file protection).
-3. Restarts Valet Nginx.
 
 Access your API at: `https://slim.test`
 
@@ -136,38 +155,17 @@ php -S 127.0.0.1:8000 -t public
 
 ---
 
-## 🔒 Security Hardening
-
-### 1. Web Server & HTTPS Deployment
-
-- **Expose ONLY `public/`**: Set your web server document root strictly to the `public/` directory (see [`nginx.conf.example`](file:///Users/devkabir/Sites/slim/nginx.conf.example)). Never expose the repository root directory.
-- **HTTP -> HTTPS Redirection**: Handled at the reverse proxy / web server layer (301) and backed up by [`HttpsEnforcementMiddleware`](file:///Users/devkabir/Sites/slim/src/Middleware/HttpsEnforcementMiddleware.php) (301 for safe methods, 308 for mutations to preserve request payload).
-- **HSTS**: Enabled via `Strict-Transport-Security: max-age=31536000; includeSubDomains` at the HTTPS termination layer and in [`SecurityHeadersMiddleware`](file:///Users/devkabir/Sites/slim/src/Middleware/SecurityHeadersMiddleware.php).
-- **Security Headers**:
-  - `X-Content-Type-Options: nosniff`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-  - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`
-  - `X-Frame-Options: DENY`
-
-### 2. Memcached Hardening
-
-- **Private Binding & Firewall**: Memcached is configured to bind strictly to `127.0.0.1` or a private VPC interface (never `0.0.0.0`). In production, restrict port 11211 with firewall rules and disable UDP (`-U 0`).
-- **SASL Authentication**: Supported via `MEMCACHED_USERNAME` and `MEMCACHED_PASSWORD` in binary protocol mode.
-- **No `getAllKeys()` Scans**: Cache invalidation uses O(1) versioned cache namespaces (`Cache::incrementNamespaceVersion('todo_list_ns')`) and targeted direct multi-key deletions (`todo_list_all`, `todo_list_completed`, `todo_list_pending`).
-- **Sanitized Logging**: All cache warnings and connection failures redact credentials and tokens.
-
----
-
 ## 📡 API Endpoints
 
-| Method   | Endpoint          | Description                                              | Cache Behavior                                         |
-| :------- | :---------------- | :------------------------------------------------------- | :----------------------------------------------------- |
-| `GET`    | `/`               | Health check & API status                                | Public info                                            |
-| `GET`    | `/health/live`    | Public liveness probe                                    | Process check                                          |
-| `GET`    | `/health/ready`   | Protected readiness probe                                | Checks MySQL & Memcached                               |
-| `GET`    | `/api/todos`      | List all todos (filter `?completed=1` or `?completed=0`) | Versioned list cache (`todo_list_v{N}_*`)              |
-| `GET`    | `/api/todos/{id}` | Get single todo by ID                                    | Item cache (`todo_item_{id}`)                          |
-| `POST`   | `/api/todos`      | Create a new todo                                        | Writes to DB, warms item cache, invalidates list cache |
-| `PUT`    | `/api/todos/{id}` | Update an existing todo                                  | Updates DB, invalidates item & list caches             |
-| `PATCH`  | `/api/todos/{id}` | Partially update an existing todo                        | Updates DB, invalidates item & list caches             |
-| `DELETE` | `/api/todos/{id}` | Delete a todo                                            | Deletes from DB, invalidates item & list caches        |
+| Method   | Endpoint          | Route Name      | Description                                              | Cache / Behavior                                       |
+| :------- | :---------------- | :-------------- | :------------------------------------------------------- | :----------------------------------------------------- |
+| `GET`    | `/`               | `home`          | API status & dynamically generated endpoint routes       | Public info                                            |
+| `GET`    | `/health`         | `health`        | Public liveness probe                                    | Process check                                          |
+| `GET`    | `/health/live`    | `health.live`   | Public liveness probe                                    | Process check                                          |
+| `GET`    | `/health/ready`   | `health.ready`  | Protected readiness probe (`X-Health-Key` / Bearer token)| Checks MySQL DBAL & Memcached                          |
+| `GET`    | `/api/todos`      | `todos.index`   | List all todos (`?completed=1`, `?completed=0`)         | Versioned list cache (`todo_list_v{N}_*`)              |
+| `GET`    | `/api/todos/{id}` | `todos.show`    | Get single todo by ID                                    | Item cache (`todo_item_{id}`)                          |
+| `POST`   | `/api/todos`      | `todos.create`  | Create a new todo (returns `Location` header)            | Writes to DB, warms item cache, invalidates list cache |
+| `PUT`    | `/api/todos/{id}` | `todos.update`  | Update an existing todo                                  | Updates DB, invalidates item & list caches             |
+| `PATCH`  | `/api/todos/{id}` | `todos.patch`   | Partially update an existing todo                        | Updates DB, invalidates item & list caches             |
+| `DELETE` | `/api/todos/{id}` | `todos.delete`  | Delete a todo                                            | Deletes from DB, invalidates item & list caches        |

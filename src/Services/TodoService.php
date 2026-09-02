@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Config\Cache;
 use App\DTOs\CreateTodoDTO;
 use App\DTOs\UpdateTodoDTO;
+use App\Exceptions\TodoNotFoundException;
 use App\Models\Todo;
-use App\Repositories\TodoRepository;
+use App\Repositories\TodoRepositoryInterface;
 use Psr\Log\LoggerInterface;
 
 final readonly class TodoService
@@ -18,8 +18,8 @@ final readonly class TodoService
     private const CACHE_NAMESPACE_LIST = 'todo_list_ns';
 
     public function __construct(
-        private TodoRepository $repository,
-        private Cache $cache,
+        private TodoRepositoryInterface $repository,
+        private CacheService $cache,
         private ?LoggerInterface $logger = null
     ) {
     }
@@ -70,7 +70,10 @@ final readonly class TodoService
         ];
     }
 
-    public function getTodoById(int $id): ?Todo
+    /**
+     * @throws TodoNotFoundException
+     */
+    public function getTodoById(int $id): Todo
     {
         $cacheKey = self::CACHE_PREFIX_ITEM . $id;
 
@@ -80,9 +83,11 @@ final readonly class TodoService
         }
 
         $todo = $this->repository->findById($id);
-        if ($todo !== null) {
-            $this->cache->set($cacheKey, $todo->jsonSerialize());
+        if ($todo === null) {
+            throw new TodoNotFoundException($id);
         }
+
+        $this->cache->set($cacheKey, $todo->jsonSerialize());
 
         return $todo;
     }
@@ -105,6 +110,49 @@ final readonly class TodoService
     }
 
     /**
+     * @throws TodoNotFoundException
+     */
+    public function updateTodo(int $id, UpdateTodoDTO $dto): Todo
+    {
+        $existing = $this->repository->findById($id);
+        if ($existing === null) {
+            throw new TodoNotFoundException($id);
+        }
+
+        $updated = $this->repository->update($id, $dto->toArray());
+        if ($updated === null) {
+            throw new TodoNotFoundException($id);
+        }
+
+        $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
+        $this->invalidateListCaches();
+        $this->cache->set(self::CACHE_PREFIX_ITEM . $id, $updated->jsonSerialize());
+        $this->logger?->info('Todo updated successfully', ['id' => $id]);
+
+        return $updated;
+    }
+
+    /**
+     * @throws TodoNotFoundException
+     */
+    public function deleteTodo(int $id): void
+    {
+        $existing = $this->repository->findById($id);
+        if ($existing === null) {
+            throw new TodoNotFoundException($id);
+        }
+
+        $deleted = $this->repository->delete($id);
+        if (! $deleted) {
+            throw new TodoNotFoundException($id);
+        }
+
+        $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
+        $this->invalidateListCaches();
+        $this->logger?->info('Todo deleted successfully', ['id' => $id]);
+    }
+
+    /**
      * Invalidate list caches by bumping namespace version and deleting known list keys directly.
      */
     private function invalidateListCaches(): void
@@ -118,35 +166,5 @@ final readonly class TodoService
             self::CACHE_PREFIX_LIST . 'completed',
             self::CACHE_PREFIX_LIST . 'pending',
         ]);
-    }
-
-    public function updateTodo(int $id, UpdateTodoDTO $dto): ?Todo
-    {
-        $existing = $this->repository->findById($id);
-        if (! $existing) {
-            return null;
-        }
-
-        $updated = $this->repository->update($id, $dto->toArray());
-        if ($updated) {
-            $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
-            $this->invalidateListCaches();
-            $this->cache->set(self::CACHE_PREFIX_ITEM . $id, $updated->jsonSerialize());
-            $this->logger?->info('Todo updated successfully', ['id' => $id]);
-        }
-
-        return $updated;
-    }
-
-    public function deleteTodo(int $id): bool
-    {
-        $deleted = $this->repository->delete($id);
-        if ($deleted) {
-            $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
-            $this->invalidateListCaches();
-            $this->logger?->info('Todo deleted successfully', ['id' => $id]);
-        }
-
-        return $deleted;
     }
 }
