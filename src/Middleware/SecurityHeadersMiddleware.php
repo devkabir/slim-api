@@ -4,14 +4,19 @@ declare(strict_types=1);
 
 namespace App\Middleware;
 
-use App\Config\AppConfig;
+use App\Config\Settings;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-class SecurityHeadersMiddleware implements MiddlewareInterface
+final readonly class SecurityHeadersMiddleware implements MiddlewareInterface
 {
+    public function __construct(
+        private Settings $settings
+    ) {
+    }
+
     public function process(Request $request, RequestHandler $handler): Response
     {
         $response = $handler->handle($request);
@@ -23,10 +28,10 @@ class SecurityHeadersMiddleware implements MiddlewareInterface
         $response = $response->withHeader('X-Frame-Options', 'DENY');
 
         // Restrict Referrer information
-        $response = $response->withHeader('Referrer-Policy', AppConfig::getReferrerPolicy());
+        $response = $response->withHeader('Referrer-Policy', $this->settings->security['referrer_policy']);
 
         // Content Security Policy
-        $csp = AppConfig::getContentSecurityPolicy();
+        $csp = $this->settings->security['content_security_policy'];
         if ($csp !== '') {
             $response = $response->withHeader('Content-Security-Policy', $csp);
         }
@@ -38,14 +43,14 @@ class SecurityHeadersMiddleware implements MiddlewareInterface
         );
 
         // HTTP Strict Transport Security (HSTS)
-        if (AppConfig::isHstsEnabled() && $this->isHttps($request)) {
-            $hsts = sprintf('max-age=%d', AppConfig::getHstsMaxAge());
+        if ($this->settings->security['hsts_enabled'] && $this->isHttps($request)) {
+            $hsts = sprintf('max-age=%d', $this->settings->security['hsts_max_age']);
 
-            if (AppConfig::getHstsIncludeSubDomains()) {
+            if ($this->settings->security['hsts_include_subdomains']) {
                 $hsts .= '; includeSubDomains';
             }
 
-            if (AppConfig::getHstsPreload()) {
+            if ($this->settings->security['hsts_preload']) {
                 $hsts .= '; preload';
             }
 

@@ -10,7 +10,7 @@ use App\Models\Todo;
 use RuntimeException;
 use Psr\Log\LoggerInterface;
 
-class TodoRepository
+final readonly class TodoRepository
 {
     public function __construct(
         private PDO $db,
@@ -114,7 +114,7 @@ class TodoRepository
             $stmt->execute([':id' => $id]);
             $row = $stmt->fetch();
 
-            if ( ! $row) {
+            if (! $row) {
                 return null;
             }
 

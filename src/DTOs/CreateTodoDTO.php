@@ -6,7 +6,7 @@ namespace App\DTOs;
 
 use App\Exceptions\ValidationException;
 
-readonly class CreateTodoDTO
+final readonly class CreateTodoDTO
 {
     public function __construct(
         public string $title,
@@ -26,7 +26,7 @@ readonly class CreateTodoDTO
         // 1. Reject unexpected properties
         $allowedFields = ['title', 'description', 'completed'];
         $unexpected    = array_diff(array_keys($data), $allowedFields);
-        if ( ! empty($unexpected)) {
+        if (! empty($unexpected)) {
             $errors['unexpected_properties'] = sprintf(
                 'Unrecognized properties: %s. Only %s are allowed.',
                 implode(', ', $unexpected),
@@ -36,9 +36,9 @@ readonly class CreateTodoDTO
 
         // 2. Validate 'title' (required, string, 1-255 characters)
         $title = '';
-        if ( ! array_key_exists('title', $data)) {
+        if (! array_key_exists('title', $data)) {
             $errors['title'] = 'The title field is required.';
-        } elseif ( ! is_string($data['title'])) {
+        } elseif (! is_string($data['title'])) {
             $errors['title'] = 'The title field must be a string.';
         } else {
             $trimmed = trim($data['title']);
@@ -69,14 +69,14 @@ readonly class CreateTodoDTO
         // 4. Validate 'completed' (optional, must be strict boolean)
         $completed = false;
         if (array_key_exists('completed', $data)) {
-            if ( ! is_bool($data['completed'])) {
+            if (! is_bool($data['completed'])) {
                 $errors['completed'] = 'The completed field must be an actual boolean (true or false).';
             } else {
                 $completed = $data['completed'];
             }
         }
 
-        if ( ! empty($errors)) {
+        if (! empty($errors)) {
             throw new ValidationException($errors);
         }
 

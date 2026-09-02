@@ -4,24 +4,22 @@ declare(strict_types=1);
 
 namespace App\Middleware;
 
+use App\Config\Settings;
 use Psr\Http\Message\ResponseFactoryInterface;
-use Slim\Psr7\Factory\ResponseFactory;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-class JsonBodyParserMiddleware implements MiddlewareInterface
+final readonly class JsonBodyParserMiddleware implements MiddlewareInterface
 {
-    private ResponseFactoryInterface $responseFactory;
     private int $maxBodySizeBytes;
 
     public function __construct(
-        ?ResponseFactoryInterface $responseFactory = null,
-        int $maxBodySizeBytes = 1048576 // 1MB default
+        private ResponseFactoryInterface $responseFactory,
+        private Settings $settings
     ) {
-        $this->responseFactory  = $responseFactory ?? new ResponseFactory();
-        $this->maxBodySizeBytes = $maxBodySizeBytes;
+        $this->maxBodySizeBytes = $this->settings->bodyParser['max_body_size_bytes'];
     }
 
     public function process(Request $request, RequestHandler $handler): Response
@@ -82,7 +80,7 @@ class JsonBodyParserMiddleware implements MiddlewareInterface
             }
 
             // 6. Top-level JSON Object Validation (must be object, not array list or primitive)
-            if ( ! is_array($parsed) || str_starts_with($trimmedBody, '[') || ( ! empty($parsed) && array_is_list($parsed))) {
+            if (! is_array($parsed) || str_starts_with($trimmedBody, '[') || (! empty($parsed) && array_is_list($parsed))) {
                 return $this->createErrorResponse(
                     statusCode: 400,
                     type: 'BAD_REQUEST',

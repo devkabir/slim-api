@@ -14,27 +14,27 @@ This reference provides an in-depth breakdown of the architecture, application l
 │   ├── index.php                 # Entry point (invokes App::bootstrap()->run())
 │   └── .htaccess                 # Apache rewrite and security header fallback
 ├── src/
-│   ├── App.php                   # Application factory & production config check
+│   ├── App.php                   # Application factory supporting prebuilt containers
 │   ├── Bootstrap/
-│   │   ├── Bootstrap.php         # Dotenv, timezone, error reporting
-│   │   ├── ContainerFactory.php  # PHP-DI container definition registry
+│   │   ├── Bootstrap.php         # Dotenv, settings initialization, error reporting
+│   │   ├── ContainerFactory.php  # PHP-DI single composition root
 │   │   ├── Middleware.php        # Middleware pipeline registration
 │   │   └── Routes.php            # HTTP routes and route groups
 │   ├── Config/
-│   │   ├── AppConfig.php         # Environment variables & production validation
-│   │   ├── AppLogger.php         # Monolog 3 rotation & request correlation
-│   │   ├── Cache.php             # Memcached wrapper with fallback & log sanitization
-│   │   └── Database.php          # PDO MySQL singleton with SSL/TLS support
-│   ├── Controllers/              # HTTP Request handlers
-│   ├── DTOs/                     # Readonly request validation objects
+│   │   ├── Settings.php          # Immutable application configuration
+│   │   ├── AppLogger.php         # PSR-3 Monolog logger factory
+│   │   ├── Cache.php             # Memcached service instance with fallback
+│   │   └── Database.php          # PDO MySQL connection factory
+│   ├── Controllers/              # HTTP Request handlers (final readonly)
+│   ├── DTOs/                     # Request validation DTOs (final readonly)
 │   ├── Exceptions/               # Custom domain & validation exceptions
 │   ├── Handlers/                 # Custom HttpErrorHandler for Slim 4
 │   ├── Middleware/               # PSR-15 Middleware implementations
 │   ├── Models/                   # Entity models implementing JsonSerializable
-│   ├── Repositories/             # Direct PDO query execution & mapping
+│   ├── Repositories/             # PDO repository implementations (final readonly)
 │   ├── Response/                 # Standardized JSON ApiResponse envelope
-│   └── Services/                 # Business logic & Cache-Aside coordination
-└── tests/                        # PHPUnit / Integration tests
+│   └── Services/                 # Business logic & Cache-Aside coordination (final readonly)
+└── tests/                        # Integration and unit tests
 ```
 
 ---
@@ -44,32 +44,37 @@ This reference provides an in-depth breakdown of the architecture, application l
 1. **`public/index.php`**:
    Loads Composer autoloader `vendor/autoload.php` and calls `App\App::bootstrap()->run()`.
 2. **`src/App.php::bootstrap()`**:
-   - Calls `App\Bootstrap\Bootstrap::init()`: loads `.env` via `vlucas/phpdotenv`, configures `error_reporting`, sets default timezone to `UTC`.
+   - Calls `App\Bootstrap\Bootstrap::init()`: loads `.env` via `vlucas/phpdotenv`, instantiates immutable `Settings::fromEnv()`, validates production requirements, and configures runtime error reporting.
    - Calls `src/App.php::create()`:
-     1. Validates production configuration (`AppConfig::validateProductionConfig()`). Prohibits blank passwords, missing DB configs, `root` DB user, and missing health check keys in production.
-     2. Constructs PHP-DI container via `ContainerFactory::create()`.
-     3. Instantiates `Slim\App` using `AppFactory::createFromContainer($container)`.
-     4. Registers middleware stack via `Middleware::register($app, $container)`.
-     5. Registers route collectors via `Routes::register($app)`.
-     6. Returns ready `Slim\App` instance.
+     1. Constructs PHP-DI container via `ContainerFactory::create($settings)`.
+     2. Instantiates `Slim\App` using `AppFactory::createFromContainer($container)`.
+     3. Registers middleware stack via `Middleware::register($app, $container)` (resolving middleware instances directly from the container).
+     4. Registers route collectors via `Routes::register($app)`.
+     5. Returns ready `Slim\App` instance.
+
+3. **Prebuilt Container Support (`App::create(?ContainerInterface $container, ?Settings $settings)`)**:
+   Allows external callers (such as test runners or custom execution environments) to provide a pre-configured DI container while reusing standard middleware and route registrations.
 
 ---
 
 ## 3. Dependency Injection with PHP-DI
 
-The container is configured in [`src/Bootstrap/ContainerFactory.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/ContainerFactory.php).
+The container is configured in [`src/Bootstrap/ContainerFactory.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/ContainerFactory.php) as the application's single composition root.
 
 ### Core Rules for Container Bindings:
-- **Autowiring**: Use `\DI\autowire()` for Controllers, Services, and Repositories.
-- **Factories**: Use `\DI\factory()` for singletons or instances requiring runtime setup (e.g. `PDO`, `LoggerInterface`).
+- **Zero Static State**: No static singletons (`AppLogger`, `Database`, `Cache` are instance-based or factory-driven).
+- **Autowiring**: Use `\DI\autowire()` for Controllers, Services, Repositories, and Middleware.
+- **Factories**: Use `\DI\factory()` for runtime construction (e.g. `PDO`, `LoggerInterface`).
 - **Interfaces**: Bind PSR interfaces (`Psr\Log\LoggerInterface`, `Psr\Http\Message\ResponseFactoryInterface`) to their concrete implementations.
 
 ```php
 use PDO;
 use DI\ContainerBuilder;
 use Psr\Log\LoggerInterface;
+use App\Config\Settings;
 use App\Config\AppLogger;
 use App\Config\Database;
+use App\Config\Cache;
 use App\Response\ApiResponse;
 use Slim\Psr7\Factory\ResponseFactory;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -78,17 +83,29 @@ use function DI\factory;
 
 $builder = new ContainerBuilder();
 $builder->addDefinitions([
-    LoggerInterface::class          => factory(fn() => AppLogger::getLogger()),
+    // Immutable Settings
+    Settings::class                 => $settings,
+
+    // PSR Interfaces
     ResponseFactoryInterface::class => autowire(ResponseFactory::class),
-    PDO::class                      => factory(fn() => Database::getConnection()),
+    LoggerInterface::class          => factory(fn(Settings $s) => AppLogger::createLogger($s)),
+    PDO::class                      => factory(fn(Settings $s, LoggerInterface $log) => Database::createConnection($s, $log)),
+
+    // Services & Handlers
+    Cache::class                    => autowire(Cache::class),
     ApiResponse::class              => autowire(ApiResponse::class),
-    // Repositories
     TodoRepository::class           => autowire(TodoRepository::class),
-    // Services
     TodoService::class              => autowire(TodoService::class),
-    // Controllers
     TodoController::class           => autowire(TodoController::class),
     HealthController::class         => autowire(HealthController::class),
+
+    // Middleware
+    CorsMiddleware::class             => autowire(CorsMiddleware::class),
+    HttpsEnforcementMiddleware::class => autowire(HttpsEnforcementMiddleware::class),
+    JsonBodyParserMiddleware::class   => autowire(JsonBodyParserMiddleware::class),
+    RateLimitMiddleware::class        => autowire(RateLimitMiddleware::class),
+    RequestIdMiddleware::class        => autowire(RequestIdMiddleware::class),
+    SecurityHeadersMiddleware::class  => autowire(SecurityHeadersMiddleware::class),
 ]);
 ```
 
@@ -102,15 +119,15 @@ In [`src/Bootstrap/Middleware.php`](file:///Users/devkabir/Sites/slim/src/Bootst
 
 ```php
 // Order of registration:
-$app->addRoutingMiddleware();                                  // 7. Slim Route matching
-$app->add(new JsonBodyParserMiddleware($responseFactory));      // 6. Parses JSON body
-$app->add(new CorsMiddleware());                               // 5. Handles CORS preflight & headers
+$app->addRoutingMiddleware();                                       // 7. Slim Route matching
+$app->add($container->get(JsonBodyParserMiddleware::class));        // 6. Parses JSON body
+$app->add($container->get(CorsMiddleware::class));                 // 5. Handles CORS preflight & headers
 $errorMiddleware = $app->addErrorMiddleware($debug, true, true, $logger); // 4. Catches unhandled errors
 $errorMiddleware->setDefaultErrorHandler($errorHandler);
-$app->add(new RateLimitMiddleware($responseFactory));          // 3. Rate limiting (429)
-$app->add(new SecurityHeadersMiddleware());                    // 2. CSP, HSTS, X-Frame-Options
-$app->add(new RequestIdMiddleware());                          // 1. X-Request-ID propagation & Monolog
-$app->add(new HttpsEnforcementMiddleware($responseFactory));    // 0. Redirect HTTP -> HTTPS
+$app->add($container->get(RateLimitMiddleware::class));            // 3. Rate limiting (429)
+$app->add($container->get(SecurityHeadersMiddleware::class));      // 2. CSP, HSTS, X-Frame-Options
+$app->add($container->get(RequestIdMiddleware::class));            // 1. X-Request-ID propagation & Monolog
+$app->add($container->get(HttpsEnforcementMiddleware::class));      // 0. Redirect HTTP -> HTTPS
 ```
 
 ### Request Flow:

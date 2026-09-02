@@ -6,11 +6,11 @@ namespace App\DTOs;
 
 use App\Exceptions\ValidationException;
 
-readonly class TodoListQueryDTO
+final readonly class TodoListQueryDTO
 {
-    public const DEFAULT_PAGE    = 1;
-    public const DEFAULT_LIMIT   = 20;
-    public const HARD_MAX_LIMIT  = 100;
+    public const DEFAULT_PAGE   = 1;
+    public const DEFAULT_LIMIT  = 20;
+    public const HARD_MAX_LIMIT = 100;
 
     public function __construct(
         public ?bool $completed = null,
@@ -65,7 +65,7 @@ readonly class TodoListQueryDTO
             }
         }
 
-        if ( ! empty($errors)) {
+        if (! empty($errors)) {
             throw new ValidationException($errors);
         }
 

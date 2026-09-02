@@ -7,19 +7,21 @@ namespace App\Controllers;
 use PDO;
 use Throwable;
 use App\Config\Cache;
+use App\Config\Settings;
 use DateTimeImmutable;
 use DateTimeInterface;
-use App\Config\AppConfig;
 use Psr\Log\LoggerInterface;
 use App\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-class HealthController
+final readonly class HealthController
 {
     public function __construct(
         private PDO $pdo,
         private ApiResponse $response,
+        private Settings $settings,
+        private Cache $cache,
         private ?LoggerInterface $logger = null
     ) {
     }
@@ -44,18 +46,18 @@ class HealthController
     public function readiness(Request $request, Response $response): Response
     {
         // Check authorization if a secret key is configured
-        $secret = AppConfig::getHealthCheckSecret();
+        $secret = $this->settings->security['health_check_secret'];
         if ($secret !== null) {
             $authHeader   = $request->getHeaderLine('Authorization');
             $customHeader = $request->getHeaderLine('X-Health-Key');
             $queryKey     = $request->getQueryParams()['key'] ?? null;
 
             $providedToken = null;
-            if ( ! empty($customHeader)) {
+            if (! empty($customHeader)) {
                 $providedToken = trim($customHeader);
             } elseif (str_starts_with($authHeader, 'Bearer ')) {
                 $providedToken = trim(substr($authHeader, 7));
-            } elseif ( ! empty($queryKey) && is_string($queryKey)) {
+            } elseif (! empty($queryKey) && is_string($queryKey)) {
                 $providedToken = trim($queryKey);
             }
 
@@ -87,7 +89,7 @@ class HealthController
         }
 
         // Check Memcached
-        $cacheStatus = Cache::isConnected() ? 'connected' : 'unavailable';
+        $cacheStatus = $this->cache->isConnected() ? 'connected' : 'unavailable';
 
         $isReady    = $dbHealthy;
         $httpStatus = $isReady ? 200 : 503;

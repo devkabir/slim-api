@@ -4,29 +4,26 @@ declare(strict_types=1);
 
 namespace App\Middleware;
 
-use App\Config\AppConfig;
+use App\Config\Settings;
 use Psr\Http\Message\ResponseFactoryInterface;
-use Slim\Psr7\Factory\ResponseFactory;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-class HttpsEnforcementMiddleware implements MiddlewareInterface
+final readonly class HttpsEnforcementMiddleware implements MiddlewareInterface
 {
-    private ResponseFactoryInterface $responseFactory;
-
     public function __construct(
-        ?ResponseFactoryInterface $responseFactory = null
+        private ResponseFactoryInterface $responseFactory,
+        private Settings $settings
     ) {
-        $this->responseFactory = $responseFactory ?? new ResponseFactory();
     }
 
     public function process(Request $request, RequestHandler $handler): Response
     {
-        if (AppConfig::isForceHttps() && ! $this->isHttps($request)) {
+        if ($this->settings->security['force_https'] && ! $this->isHttps($request)) {
             $uri = $request->getUri();
-            
+
             // Build the HTTPS target URI
             $targetUri = $uri
                 ->withScheme('https')

@@ -4,29 +4,33 @@ declare(strict_types=1);
 
 namespace App;
 
-use Slim\App as SlimApp;
-use App\Config\AppConfig;
-use App\Bootstrap\Routes;
 use App\Bootstrap\Bootstrap;
-use Slim\Factory\AppFactory;
-use App\Bootstrap\Middleware;
 use App\Bootstrap\ContainerFactory;
+use App\Bootstrap\Middleware;
+use App\Bootstrap\Routes;
+use App\Config\Settings;
+use Psr\Container\ContainerInterface;
+use Slim\App as SlimApp;
+use Slim\Factory\AppFactory;
 
-class App
+final class App
 {
-    public static function bootstrap(): SlimApp
+    public static function bootstrap(?Settings $settings = null): SlimApp
     {
-        Bootstrap::init();
+        $settings  = Bootstrap::init($settings);
+        $container = ContainerFactory::create($settings);
 
-        return self::create();
+        return self::create($container);
     }
 
-    public static function create(): SlimApp
+    public static function create(?ContainerInterface $container = null, ?Settings $settings = null): SlimApp
     {
-        AppConfig::validateProductionConfig();
+        if ($container === null) {
+            $settings ??= Settings::fromEnv();
+            $container = ContainerFactory::create($settings);
+        }
 
-        $container = ContainerFactory::create();
-        $app       = AppFactory::createFromContainer($container);
+        $app = AppFactory::createFromContainer($container);
 
         Middleware::register($app, $container);
         Routes::register($app);

@@ -12,7 +12,7 @@ use App\DTOs\TodoListQueryDTO;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-class TodoController
+final readonly class TodoController
 {
     public function __construct(
         private TodoService $todoService,
@@ -50,7 +50,7 @@ class TodoController
 
         $todo = $this->todoService->getTodoById($id);
 
-        if ( ! $todo) {
+        if (! $todo) {
             return $this->response->error(
                 message: "Todo with ID {$id} not found.",
                 type: 'NOT_FOUND',
@@ -96,7 +96,7 @@ class TodoController
 
         $updated = $this->todoService->updateTodo($id, $dto);
 
-        if ( ! $updated) {
+        if (! $updated) {
             return $this->response->error(
                 message: "Todo with ID {$id} not found.",
                 type: 'NOT_FOUND',
@@ -126,7 +126,7 @@ class TodoController
 
         $deleted = $this->todoService->deleteTodo($id);
 
-        if ( ! $deleted) {
+        if (! $deleted) {
             return $this->response->error(
                 message: "Todo with ID {$id} not found.",
                 type: 'NOT_FOUND',

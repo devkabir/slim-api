@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Models\Todo;
 use App\Config\Cache;
-use App\DTOs\UpdateTodoDTO;
 use App\DTOs\CreateTodoDTO;
-use Psr\Log\LoggerInterface;
+use App\DTOs\UpdateTodoDTO;
+use App\Models\Todo;
 use App\Repositories\TodoRepository;
+use Psr\Log\LoggerInterface;
 
-class TodoService
+final readonly class TodoService
 {
     private const CACHE_PREFIX_ITEM    = 'todo_item_';
     private const CACHE_PREFIX_LIST    = 'todo_list_';
@@ -19,6 +19,7 @@ class TodoService
 
     public function __construct(
         private TodoRepository $repository,
+        private Cache $cache,
         private ?LoggerInterface $logger = null
     ) {
     }
@@ -28,11 +29,11 @@ class TodoService
      */
     public function getPaginatedTodos(?bool $completed = null, int $page = 1, int $limit = 20): array
     {
-        $nsVersion = Cache::getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+        $nsVersion = $this->cache->getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
         $filterKey = $completed === null ? 'all' : ($completed ? 'completed' : 'pending');
         $cacheKey  = self::CACHE_PREFIX_LIST . "v{$nsVersion}_{$filterKey}_p{$page}_l{$limit}";
 
-        $cached = Cache::get($cacheKey);
+        $cached = $this->cache->get($cacheKey);
         if ($cached !== false && is_array($cached) && isset($cached['items'], $cached['pagination'])) {
             $todos = array_map(fn($item) => $item instanceof Todo ? $item : Todo::fromArray($item), $cached['items']);
 
@@ -58,7 +59,7 @@ class TodoService
 
         // Store serialized items and pagination metadata in cache
         $serializedItems = array_map(fn(Todo $t) => $t->jsonSerialize(), $todos);
-        Cache::set($cacheKey, [
+        $this->cache->set($cacheKey, [
             'items'      => $serializedItems,
             'pagination' => $pagination,
         ]);
@@ -73,14 +74,14 @@ class TodoService
     {
         $cacheKey = self::CACHE_PREFIX_ITEM . $id;
 
-        $cached = Cache::get($cacheKey);
+        $cached = $this->cache->get($cacheKey);
         if ($cached !== false && is_array($cached)) {
             return Todo::fromArray($cached);
         }
 
         $todo = $this->repository->findById($id);
         if ($todo !== null) {
-            Cache::set($cacheKey, $todo->jsonSerialize());
+            $this->cache->set($cacheKey, $todo->jsonSerialize());
         }
 
         return $todo;
@@ -95,7 +96,7 @@ class TodoService
 
         // Warm up single item cache
         if ($todo->id !== null) {
-            Cache::set(self::CACHE_PREFIX_ITEM . $todo->id, $todo->jsonSerialize());
+            $this->cache->set(self::CACHE_PREFIX_ITEM . $todo->id, $todo->jsonSerialize());
         }
 
         $this->logger?->info('Todo created successfully', ['id' => $todo->id, 'title' => $todo->title]);
@@ -109,10 +110,10 @@ class TodoService
     private function invalidateListCaches(): void
     {
         // 1. O(1) versioned cache invalidation
-        Cache::incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+        $this->cache->incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
 
         // 2. Direct deletion of known static list keys
-        Cache::deleteMulti([
+        $this->cache->deleteMulti([
             self::CACHE_PREFIX_LIST . 'all',
             self::CACHE_PREFIX_LIST . 'completed',
             self::CACHE_PREFIX_LIST . 'pending',
@@ -122,15 +123,15 @@ class TodoService
     public function updateTodo(int $id, UpdateTodoDTO $dto): ?Todo
     {
         $existing = $this->repository->findById($id);
-        if ( ! $existing) {
+        if (! $existing) {
             return null;
         }
 
         $updated = $this->repository->update($id, $dto->toArray());
         if ($updated) {
-            Cache::delete(self::CACHE_PREFIX_ITEM . $id);
+            $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
             $this->invalidateListCaches();
-            Cache::set(self::CACHE_PREFIX_ITEM . $id, $updated->jsonSerialize());
+            $this->cache->set(self::CACHE_PREFIX_ITEM . $id, $updated->jsonSerialize());
             $this->logger?->info('Todo updated successfully', ['id' => $id]);
         }
 
@@ -141,7 +142,7 @@ class TodoService
     {
         $deleted = $this->repository->delete($id);
         if ($deleted) {
-            Cache::delete(self::CACHE_PREFIX_ITEM . $id);
+            $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
             $this->invalidateListCaches();
             $this->logger?->info('Todo deleted successfully', ['id' => $id]);
         }

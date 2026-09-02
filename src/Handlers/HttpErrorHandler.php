@@ -4,28 +4,39 @@ declare(strict_types=1);
 
 namespace App\Handlers;
 
-use App\Config\AppConfig;
-use Slim\Exception\HttpException;
-use App\Exceptions\ValidationException;
-use Slim\Exception\HttpNotFoundException;
-use Slim\Exception\HttpForbiddenException;
-use Slim\Exception\HttpBadRequestException;
-use Slim\Exception\HttpUnauthorizedException;
-use Slim\Exception\HttpMethodNotAllowedException;
+use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Log\LoggerInterface;
+use Slim\Exception\HttpBadRequestException;
+use Slim\Exception\HttpException;
+use Slim\Exception\HttpForbiddenException;
+use Slim\Exception\HttpMethodNotAllowedException;
+use Slim\Exception\HttpNotFoundException;
+use Slim\Exception\HttpUnauthorizedException;
 use Slim\Handlers\ErrorHandler as SlimErrorHandler;
+use Slim\Interfaces\CallableResolverInterface;
+use App\Exceptions\ValidationException;
 
-class HttpErrorHandler extends SlimErrorHandler
+final class HttpErrorHandler extends SlimErrorHandler
 {
-    public const TYPE_SERVER_ERROR            = 'SERVER_ERROR';
-    public const TYPE_NOT_FOUND               = 'NOT_FOUND';
-    public const TYPE_NOT_ALLOWED             = 'NOT_ALLOWED';
-    public const TYPE_UNAUTHORIZED            = 'UNAUTHORIZED';
-    public const TYPE_FORBIDDEN               = 'FORBIDDEN';
-    public const TYPE_BAD_REQUEST             = 'BAD_REQUEST';
-    public const TYPE_VALIDATION_ERROR        = 'VALIDATION_ERROR';
-    public const TYPE_CONTENT_TOO_LARGE       = 'CONTENT_TOO_LARGE';
-    public const TYPE_UNSUPPORTED_MEDIA_TYPE  = 'UNSUPPORTED_MEDIA_TYPE';
+    public const TYPE_SERVER_ERROR           = 'SERVER_ERROR';
+    public const TYPE_NOT_FOUND              = 'NOT_FOUND';
+    public const TYPE_NOT_ALLOWED            = 'NOT_ALLOWED';
+    public const TYPE_UNAUTHORIZED           = 'UNAUTHORIZED';
+    public const TYPE_FORBIDDEN              = 'FORBIDDEN';
+    public const TYPE_BAD_REQUEST            = 'BAD_REQUEST';
+    public const TYPE_VALIDATION_ERROR       = 'VALIDATION_ERROR';
+    public const TYPE_CONTENT_TOO_LARGE      = 'CONTENT_TOO_LARGE';
+    public const TYPE_UNSUPPORTED_MEDIA_TYPE = 'UNSUPPORTED_MEDIA_TYPE';
+
+    public function __construct(
+        CallableResolverInterface $callableResolver,
+        ResponseFactoryInterface $responseFactory,
+        ?LoggerInterface $logger = null,
+        private readonly bool $isProduction = false
+    ) {
+        parent::__construct($callableResolver, $responseFactory, $logger);
+    }
 
     protected function respond(): Response
     {
@@ -74,7 +85,7 @@ class HttpErrorHandler extends SlimErrorHandler
         }
 
         // Detailed error information only when debug is active AND strictly NOT in production
-        if ($this->displayErrorDetails && ! AppConfig::isProduction()) {
+        if ($this->displayErrorDetails && ! $this->isProduction) {
             $payload['debug'] = [
                 'type'    => get_class($exception),
                 'message' => $exception->getMessage(),

@@ -16,7 +16,7 @@ namespace App\DTOs;
 
 use App\Exceptions\ValidationException;
 
-readonly class CreateProjectDTO
+final readonly class CreateProjectDTO
 {
     public function __construct(
         public string $name,
@@ -101,7 +101,7 @@ namespace App\DTOs;
 
 use App\Exceptions\ValidationException;
 
-readonly class UpdateProjectDTO
+final readonly class UpdateProjectDTO
 {
     /**
      * @param array<string, mixed> $attributes
@@ -177,7 +177,7 @@ namespace App\Models;
 
 use JsonSerializable;
 
-readonly class Project implements JsonSerializable
+final readonly class Project implements JsonSerializable
 {
     public function __construct(
         public ?int $id,
@@ -231,7 +231,7 @@ use App\Models\Project;
 use RuntimeException;
 use Psr\Log\LoggerInterface;
 
-class ProjectRepository
+final readonly class ProjectRepository
 {
     public function __construct(
         private PDO $db,
@@ -369,7 +369,7 @@ use App\DTOs\UpdateProjectDTO;
 use Psr\Log\LoggerInterface;
 use App\Repositories\ProjectRepository;
 
-class ProjectService
+final readonly class ProjectService
 {
     private const CACHE_PREFIX_ITEM    = 'project_item_';
     private const CACHE_PREFIX_LIST    = 'project_list_';
@@ -377,6 +377,7 @@ class ProjectService
 
     public function __construct(
         private ProjectRepository $repository,
+        private Cache $cache,
         private ?LoggerInterface $logger = null
     ) {}
 
@@ -385,10 +386,10 @@ class ProjectService
      */
     public function getPaginatedProjects(int $page = 1, int $limit = 20): array
     {
-        $nsVersion = Cache::getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+        $nsVersion = $this->cache->getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
         $cacheKey  = self::CACHE_PREFIX_LIST . "v{$nsVersion}_p{$page}_l{$limit}";
 
-        $cached = Cache::get($cacheKey);
+        $cached = $this->cache->get($cacheKey);
         if ($cached !== false && is_array($cached) && isset($cached['items'], $cached['pagination'])) {
             $projects = array_map(fn($item) => $item instanceof Project ? $item : Project::fromArray($item), $cached['items']);
             return ['projects' => $projects, 'pagination' => $cached['pagination']];
@@ -408,7 +409,7 @@ class ProjectService
             'has_prev_page' => $page > 1,
         ];
 
-        Cache::set($cacheKey, [
+        $this->cache->set($cacheKey, [
             'items'      => array_map(fn(Project $p) => $p->jsonSerialize(), $projects),
             'pagination' => $pagination,
         ]);
@@ -419,14 +420,14 @@ class ProjectService
     public function getProjectById(int $id): ?Project
     {
         $cacheKey = self::CACHE_PREFIX_ITEM . $id;
-        $cached = Cache::get($cacheKey);
+        $cached = $this->cache->get($cacheKey);
         if ($cached !== false && is_array($cached)) {
             return Project::fromArray($cached);
         }
 
         $project = $this->repository->findById($id);
         if ($project !== null) {
-            Cache::set($cacheKey, $project->jsonSerialize());
+            $this->cache->set($cacheKey, $project->jsonSerialize());
         }
 
         return $project;
@@ -438,7 +439,7 @@ class ProjectService
         $this->invalidateListCaches();
 
         if ($project->id !== null) {
-            Cache::set(self::CACHE_PREFIX_ITEM . $project->id, $project->jsonSerialize());
+            $this->cache->set(self::CACHE_PREFIX_ITEM . $project->id, $project->jsonSerialize());
         }
 
         $this->logger?->info('Project created', ['id' => $project->id, 'name' => $project->name]);
@@ -454,9 +455,9 @@ class ProjectService
 
         $updated = $this->repository->update($id, $dto->toArray());
         if ($updated) {
-            Cache::delete(self::CACHE_PREFIX_ITEM . $id);
+            $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
             $this->invalidateListCaches();
-            Cache::set(self::CACHE_PREFIX_ITEM . $id, $updated->jsonSerialize());
+            $this->cache->set(self::CACHE_PREFIX_ITEM . $id, $updated->jsonSerialize());
             $this->logger?->info('Project updated', ['id' => $id]);
         }
 
@@ -467,7 +468,7 @@ class ProjectService
     {
         $deleted = $this->repository->delete($id);
         if ($deleted) {
-            Cache::delete(self::CACHE_PREFIX_ITEM . $id);
+            $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
             $this->invalidateListCaches();
             $this->logger?->info('Project deleted', ['id' => $id]);
         }
@@ -477,7 +478,7 @@ class ProjectService
 
     private function invalidateListCaches(): void
     {
-        Cache::incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+        $this->cache->incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
     }
 }
 ```
@@ -500,7 +501,7 @@ use App\Services\ProjectService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-class ProjectController
+final readonly class ProjectController
 {
     public function __construct(
         private ProjectService $projectService,

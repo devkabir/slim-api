@@ -33,9 +33,10 @@ A RESTful Todo List CRUD API built using **Slim 4**, **MySQL** (via PDO), and **
 │   └── .htaccess               # Apache URL rewrite rules & Security headers
 └── src/
     ├── Config/
-    │   ├── AppConfig.php       # Environment configuration helper
-    │   ├── Database.php        # PDO MySQL connection
-    │   └── Cache.php           # Memcached connection & hardened helper methods
+    │   ├── Settings.php        # Immutable application configuration
+    │   ├── Database.php        # PDO MySQL connection factory
+    │   ├── Cache.php           # Memcached service & cache-aside helper
+    │   └── AppLogger.php       # PSR-3 Monolog Logger factory
     ├── Controllers/
     │   ├── HealthController.php# Liveness and protected readiness checks
     │   └── TodoController.php  # Handles RESTful requests & responses

@@ -6,7 +6,7 @@ namespace App\Models;
 
 use JsonSerializable;
 
-class Todo implements JsonSerializable
+final readonly class Todo implements JsonSerializable
 {
     public function __construct(
         public ?int $id = null,
@@ -36,7 +36,7 @@ class Todo implements JsonSerializable
             'id'          => $this->id,
             'title'       => $this->title,
             'description' => $this->description,
-            'completed'   => (bool)$this->completed,
+            'completed'   => $this->completed,
             'created_at'  => $this->created_at,
             'updated_at'  => $this->updated_at,
         ];

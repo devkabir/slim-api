@@ -7,7 +7,7 @@ This reference provides details on the security mechanisms, caching patterns, an
 ## 1. Memcached Caching Strategy
 
 ### Cache-Aside Pattern
-1. **Read Path**: Check Memcached for the requested key. If found, deserialize and return immediately. If cache misses, query MySQL, write to Memcached with TTL, and return.
+1. **Read Path**: Check Memcached for the requested key via injected `Cache $cache`. If found, deserialize and return immediately. If cache misses, query MySQL, write to Memcached with TTL, and return.
 2. **Write Path**: Execute mutation in MySQL. Invalidate cache keys (and increment namespace version). Optionally warm up the single-item cache.
 
 ### O(1) Versioned Namespace Invalidation
@@ -18,11 +18,11 @@ Never use `Memcached::getAllKeys()` or `flush()` in production. Instead, maintai
 private const CACHE_NAMESPACE_LIST = 'todo_list_ns';
 
 // Read:
-$nsVersion = Cache::getNamespaceVersion(self::CACHE_NAMESPACE_LIST); // e.g., "3"
+$nsVersion = $this->cache->getNamespaceVersion(self::CACHE_NAMESPACE_LIST); // e.g., "3"
 $cacheKey  = "todo_list_v{$nsVersion}_{$filter}_p{$page}_l{$limit}";
 
 // Mutation (Create/Update/Delete):
-Cache::incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST); // Bumps to "4"
+$this->cache->incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST); // Bumps to "4"
 ```
 *Any subsequent read will look for `v4_...`, instantly rendering all previous `v3` pages stale without needing to iterate or delete individual list cache keys.*
 
@@ -72,7 +72,7 @@ Configured in [`src/Middleware/RateLimitMiddleware.php`](file:///Users/devkabir/
 
 ## 4. Production Configuration Safeguards
 
-In [`src/Config/AppConfig.php::validateProductionConfig()`](file:///Users/devkabir/Sites/slim/src/Config/AppConfig.php):
+In [`src/Config/Settings.php::validateProductionConfig()`](file:///Users/devkabir/Sites/slim/src/Config/Settings.php):
 When `APP_ENV=production`:
 1. `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS` must be non-empty strings.
 2. `DB_USER` cannot be `root`.
@@ -88,7 +88,7 @@ In [`src/Controllers/HealthController.php`](file:///Users/devkabir/Sites/slim/sr
 - **Readiness (`/health/ready`)**:
   - Requires authorization via `X-Health-Key` header, `Authorization: Bearer <secret>`, or `?key=<secret>`.
   - Verified using timing-attack resistant `hash_equals()`.
-  - Executes `SELECT 1` on MySQL PDO and checks Memcached status.
+  - Executes `SELECT 1` on MySQL PDO and checks Memcached status via injected `Cache`.
   - Returns HTTP 200 `{status: "ready", services: {mysql: "connected", memcached: "connected"}}` or HTTP 503 `{status: "unhealthy"}`.
 
 ---

@@ -33,8 +33,11 @@ Request ──► [PSR-15 Middleware Pipeline] ──► [Slim 4 Route] ──�
 
 ### Core Conventions
 - **PHP Version**: PHP 8.4+ with `declare(strict_types=1);` in **every** PHP file.
-- **DTOs**: `readonly class` with static `fromArray()` / `fromQueryParams()` methods enforcing strict payload validation.
-- **Dependency Injection**: `php-di/php-di` v7 via [`src/Bootstrap/ContainerFactory.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/ContainerFactory.php).
+- **Class Modifiers**: Classes are `final` or `final readonly` where inheritance or mutation is unnecessary.
+- **DTOs**: `final readonly class` with static `fromArray()` / `fromQueryParams()` methods enforcing strict payload validation.
+- **Configuration**: Immutable [`Settings`](file:///Users/devkabir/Sites/slim/src/Config/Settings.php) object created during bootstrap via `Settings::fromEnv()` and injected into infrastructure and middleware (no static environment lookups).
+- **Dependency Injection**: `php-di/php-di` v7 via [`src/Bootstrap/ContainerFactory.php`](file:///Users/devkabir/Sites/slim/src/Bootstrap/ContainerFactory.php) as the single composition root. Zero static singletons or service locators.
+- **Application Factory**: App created via `AppFactory::createFromContainer($container)` with support for prebuilt containers.
 - **HTTP / PSR Standards**: PSR-7 (`slim/psr7`), PSR-15 Middleware, PSR-11 Container, PSR-3 Logger (`monolog/monolog`).
 - **Response Format**: Standardized envelope via [`ApiResponse`](file:///Users/devkabir/Sites/slim/src/Response/ApiResponse.php).
 
@@ -70,7 +73,7 @@ namespace App\Models;
 
 use JsonSerializable;
 
-readonly class Item implements JsonSerializable
+final readonly class Item implements JsonSerializable
 {
     public function __construct(
         public ?int $id,
@@ -114,13 +117,14 @@ Create strict DTOs throwing [`ValidationException`](file:///Users/devkabir/Sites
 - **`<Entity>ListQueryDTO`**: Parse query params (`page`, `limit` capped by `HARD_MAX_LIMIT = 100`, filter options).
 
 ### 4. Repository Layer (`src/Repositories/<Entity>Repository.php`)
-- Inject `PDO` and optional `Psr\Log\LoggerInterface`.
+- `final readonly class` injecting `PDO` and optional `Psr\Log\LoggerInterface`.
 - Use **real server-side prepared statements** (`PDO::ATTR_EMULATE_PREPARES => false`).
 - Bind explicit parameter types (`PDO::PARAM_INT`, `PDO::PARAM_STR`).
 - Catch `Throwable`, log error context, and re-throw.
 
 ### 5. Service Layer (`src/Services/<Entity>Service.php`)
-- Implement Cache-Aside caching via [`App\Config\Cache`](file:///Users/devkabir/Sites/slim/src/Config/Cache.php).
+- `final readonly class` injecting `<Entity>Repository`, [`App\Config\Cache`](file:///Users/devkabir/Sites/slim/src/Config/Cache.php), and optional `Psr\Log\LoggerInterface`.
+- Implement Cache-Aside caching via injected `$this->cache`:
 - Use **O(1) versioned list invalidation**:
   ```php
   private const CACHE_NAMESPACE_LIST = 'item_list_ns';
@@ -128,16 +132,16 @@ Create strict DTOs throwing [`ValidationException`](file:///Users/devkabir/Sites
   private const CACHE_PREFIX_LIST    = 'item_list_';
 
   // Read with versioning
-  $nsVersion = Cache::getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+  $nsVersion = $this->cache->getNamespaceVersion(self::CACHE_NAMESPACE_LIST);
   $cacheKey  = self::CACHE_PREFIX_LIST . "v{$nsVersion}_{$filter}_p{$page}_l{$limit}";
 
   // Invalidate on mutation
-  Cache::incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
-  Cache::delete(self::CACHE_PREFIX_ITEM . $id);
+  $this->cache->incrementNamespaceVersion(self::CACHE_NAMESPACE_LIST);
+  $this->cache->delete(self::CACHE_PREFIX_ITEM . $id);
   ```
 
 ### 6. Controller (`src/Controllers/<Entity>Controller.php`)
-- Inject `<Entity>Service` and [`ApiResponse`](file:///Users/devkabir/Sites/slim/src/Response/ApiResponse.php).
+- `final readonly class` injecting `<Entity>Service` and [`ApiResponse`](file:///Users/devkabir/Sites/slim/src/Response/ApiResponse.php).
 - Handle HTTP requests, parse body/params into DTOs, invoke service, return formatted JSON response.
 - Validate path parameter IDs (`validateId()`) to ensure positive integers.
 

@@ -7,7 +7,7 @@ namespace App\Response;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface as Response;
 
-class ApiResponse
+final readonly class ApiResponse
 {
     public function __construct(
         private ResponseFactoryInterface $responseFactory
@@ -29,7 +29,7 @@ class ApiResponse
             $payload['message'] = $message;
         }
 
-        if ( ! empty($meta)) {
+        if (! empty($meta)) {
             $payload = array_merge($payload, $meta);
         }
 

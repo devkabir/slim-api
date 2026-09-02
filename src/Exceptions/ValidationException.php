@@ -6,13 +6,13 @@ namespace App\Exceptions;
 
 use RuntimeException;
 
-class ValidationException extends RuntimeException
+final class ValidationException extends RuntimeException
 {
     /**
      * @param array<string, string|array<string>> $errors
      */
     public function __construct(
-        private array $errors,
+        private readonly array $errors,
         string $message = 'Validation failed.'
     ) {
         parent::__construct($message, 422);

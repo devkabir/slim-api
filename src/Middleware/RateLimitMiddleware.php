@@ -5,16 +5,15 @@ declare(strict_types=1);
 namespace App\Middleware;
 
 use App\Config\Cache;
+use App\Config\Settings;
 use Psr\Http\Message\ResponseFactoryInterface;
-use Slim\Psr7\Factory\ResponseFactory;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-class RateLimitMiddleware implements MiddlewareInterface
+final class RateLimitMiddleware implements MiddlewareInterface
 {
-    private ResponseFactoryInterface $responseFactory;
     private int $readLimitPerMinute;
     private int $mutationLimitPerMinute;
 
@@ -25,13 +24,12 @@ class RateLimitMiddleware implements MiddlewareInterface
     private static array $memoryStore = [];
 
     public function __construct(
-        ?ResponseFactoryInterface $responseFactory = null,
-        int $readLimitPerMinute = 300,
-        int $mutationLimitPerMinute = 60
+        private readonly ResponseFactoryInterface $responseFactory,
+        private readonly Cache $cache,
+        private readonly Settings $settings
     ) {
-        $this->responseFactory        = $responseFactory ?? new ResponseFactory();
-        $this->readLimitPerMinute     = $readLimitPerMinute;
-        $this->mutationLimitPerMinute = $mutationLimitPerMinute;
+        $this->readLimitPerMinute     = $this->settings->rateLimit['read_limit_per_minute'];
+        $this->mutationLimitPerMinute = $this->settings->rateLimit['mutation_limit_per_minute'];
     }
 
     public function process(Request $request, RequestHandler $handler): Response
@@ -86,7 +84,7 @@ class RateLimitMiddleware implements MiddlewareInterface
         $cacheKey  = "rate_limit:{$tier}:{$clientIp}:{$windowKey}";
         $resetAt   = ($windowKey + 1) * $window;
 
-        $memcached = Cache::getInstance();
+        $memcached = $this->cache->getClient();
 
         if ($memcached !== null) {
             // Memcached atomic counter
@@ -99,9 +97,9 @@ class RateLimitMiddleware implements MiddlewareInterface
             $current = (int)$current;
         } else {
             // Local memory fallback
-            if (!isset(self::$memoryStore[$cacheKey]) || self::$memoryStore[$cacheKey]['reset_at'] <= $now) {
+            if (! isset(self::$memoryStore[$cacheKey]) || self::$memoryStore[$cacheKey]['reset_at'] <= $now) {
                 self::$memoryStore[$cacheKey] = ['count' => 1, 'reset_at' => $resetAt];
-                $current = 1;
+                $current                      = 1;
             } else {
                 self::$memoryStore[$cacheKey]['count']++;
                 $current = self::$memoryStore[$cacheKey]['count'];

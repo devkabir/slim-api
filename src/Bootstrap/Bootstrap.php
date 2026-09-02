@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Bootstrap;
 
-use Throwable;
-use App\Config\AppConfig;
+use App\Config\Settings;
 use Dotenv\Dotenv;
+use Throwable;
 
-class Bootstrap
+final class Bootstrap
 {
-    public static function init(): void
+    public static function init(?Settings $settings = null): Settings
     {
         // Enforce baseline error display prevention before anything else runs
         ini_set('display_errors', '0');
@@ -30,8 +30,10 @@ class Bootstrap
             $dotenv->safeLoad();
         }
 
+        $settings ??= Settings::fromEnv();
+
         // Adjust display_errors only for development when debug is enabled; strictly 0 in production
-        if (AppConfig::isDebug() && ! AppConfig::isProduction()) {
+        if ($settings->isDebug() && ! $settings->isProduction()) {
             ini_set('display_errors', '1');
             ini_set('display_startup_errors', '1');
         } else {
@@ -40,7 +42,7 @@ class Bootstrap
         }
 
         // Global bootstrap exception handler to prevent path disclosure on fatal bootstrap errors
-        set_exception_handler(function (Throwable $e): void {
+        set_exception_handler(function (Throwable $e) use ($settings): void {
             error_log(sprintf(
                 '[%s] Uncaught %s: %s in %s on line %d',
                 date('c'),
@@ -50,13 +52,13 @@ class Bootstrap
                 $e->getLine()
             ));
 
-            if ( ! headers_sent()) {
+            if (! headers_sent()) {
                 http_response_code(500);
                 header('Content-Type: application/json; charset=utf-8');
                 header('X-Content-Type-Options: nosniff');
             }
 
-            if (AppConfig::isDebug() && ! AppConfig::isProduction()) {
+            if ($settings->isDebug() && ! $settings->isProduction()) {
                 echo json_encode([
                     'success' => false,
                     'error'   => [
@@ -77,5 +79,7 @@ class Bootstrap
             }
             exit(1);
         });
+
+        return $settings;
     }
 }

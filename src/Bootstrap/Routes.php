@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace App\Bootstrap;
 
-use Slim\App;
-use App\Config\AppConfig;
-use App\Controllers\TodoController;
+use App\Config\Settings;
 use App\Controllers\HealthController;
-use Slim\Routing\RouteCollectorProxy;
+use App\Controllers\TodoController;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Slim\App;
+use Slim\Routing\RouteCollectorProxy;
 
-class Routes
+final class Routes
 {
     public static function register(App $app): void
     {
@@ -22,11 +22,18 @@ class Routes
         });
 
         // API Info / Root endpoint
-        $app->get('/', function (Request $request, Response $response): Response {
+        $app->get('/', function (Request $request, Response $response) use ($app): Response {
+            $container   = $app->getContainer();
+            $environment = 'development';
+
+            if ($container !== null && $container->has(Settings::class)) {
+                $environment = $container->get(Settings::class)->env;
+            }
+
             $payload = [
                 'name'        => 'Slim 4 Todo CRUD API',
                 'version'     => '1.0.0',
-                'environment' => AppConfig::getEnv(),
+                'environment' => $environment,
                 'status'      => 'online',
                 'endpoints'   => [
                     'GET /health/live'       => 'Public liveness check',

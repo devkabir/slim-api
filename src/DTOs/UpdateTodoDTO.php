@@ -6,7 +6,7 @@ namespace App\DTOs;
 
 use App\Exceptions\ValidationException;
 
-readonly class UpdateTodoDTO
+final readonly class UpdateTodoDTO
 {
     public function __construct(
         public ?string $title,
@@ -29,7 +29,7 @@ readonly class UpdateTodoDTO
         // 1. Reject unexpected properties
         $allowedFields = ['title', 'description', 'completed'];
         $unexpected    = array_diff(array_keys($data), $allowedFields);
-        if ( ! empty($unexpected)) {
+        if (! empty($unexpected)) {
             $errors['unexpected_properties'] = sprintf(
                 'Unrecognized properties: %s. Only %s are allowed.',
                 implode(', ', $unexpected),
@@ -42,14 +42,14 @@ readonly class UpdateTodoDTO
         $hasCompleted   = array_key_exists('completed', $data);
 
         // 2. Ensure at least one updatable property is provided
-        if ( ! $hasTitle && ! $hasDescription && ! $hasCompleted && empty($errors)) {
+        if (! $hasTitle && ! $hasDescription && ! $hasCompleted && empty($errors)) {
             $errors['body'] = 'At least one updatable field (title, description, or completed) must be provided.';
         }
 
         // 3. Validate 'title'
         $title = null;
         if ($hasTitle) {
-            if ( ! is_string($data['title'])) {
+            if (! is_string($data['title'])) {
                 $errors['title'] = 'The title must be a string.';
             } else {
                 $trimmed = trim($data['title']);
@@ -81,14 +81,14 @@ readonly class UpdateTodoDTO
         // 5. Validate 'completed'
         $completed = null;
         if ($hasCompleted) {
-            if ( ! is_bool($data['completed'])) {
+            if (! is_bool($data['completed'])) {
                 $errors['completed'] = 'The completed field must be an actual boolean (true or false).';
             } else {
                 $completed = $data['completed'];
             }
         }
 
-        if ( ! empty($errors)) {
+        if (! empty($errors)) {
             throw new ValidationException($errors);
         }
 
